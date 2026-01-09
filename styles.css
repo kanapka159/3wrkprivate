@@ -6,8 +6,8 @@
 
 body {
     font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-    background: #f7f6f3;
-    color: #37352f;
+    background: #000000;
+    color: #ffffff;
     line-height: 1.6;
     padding: 20px;
 }
@@ -15,9 +15,9 @@ body {
 .container {
     max-width: 800px;
     margin: 0 auto;
-    background: white;
+    background: #1a1a1a;
     border-radius: 8px;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+    box-shadow: 0 1px 3px rgba(255, 255, 255, 0.1);
     padding: 40px;
 }
 
@@ -28,12 +28,12 @@ header {
 header h1 {
     font-size: 32px;
     font-weight: 700;
-    color: #37352f;
+    color: #ffffff;
     margin-bottom: 4px;
 }
 
 .subtitle {
-    color: #787774;
+    color: #b0b0b0;
     font-size: 14px;
 }
 
@@ -46,21 +46,46 @@ header h1 {
 .task-input {
     flex: 1;
     padding: 12px 16px;
-    border: 1px solid #e0e0e0;
+    border: 1px solid #404040;
     border-radius: 6px;
     font-size: 14px;
     font-family: inherit;
     transition: all 0.2s;
+    background: #2a2a2a;
+    color: #ffffff;
 }
 
 .task-input:focus {
     outline: none;
     border-color: #2383e2;
-    box-shadow: 0 0 0 3px rgba(35, 131, 226, 0.1);
+    box-shadow: 0 0 0 3px rgba(35, 131, 226, 0.2);
 }
 
 .task-input::placeholder {
-    color: #b4b4b4;
+    color: #666666;
+}
+
+.date-input {
+    padding: 12px 16px;
+    border: 1px solid #404040;
+    border-radius: 6px;
+    font-size: 14px;
+    font-family: inherit;
+    transition: all 0.2s;
+    background: #2a2a2a;
+    color: #ffffff;
+    cursor: pointer;
+}
+
+.date-input:focus {
+    outline: none;
+    border-color: #2383e2;
+    box-shadow: 0 0 0 3px rgba(35, 131, 226, 0.2);
+}
+
+.date-input::-webkit-calendar-picker-indicator {
+    filter: invert(1);
+    cursor: pointer;
 }
 
 .add-btn {
@@ -97,12 +122,12 @@ header h1 {
 .tasks-header h2 {
     font-size: 16px;
     font-weight: 600;
-    color: #37352f;
+    color: #ffffff;
 }
 
 .task-count {
     font-size: 13px;
-    color: #787774;
+    color: #b0b0b0;
 }
 
 .task-list {
@@ -121,13 +146,13 @@ header h1 {
 }
 
 .task-item:hover {
-    background: #f7f6f3;
+    background: #2a2a2a;
 }
 
 .task-checkbox {
     width: 18px;
     height: 18px;
-    border: 1.5px solid #d0d0d0;
+    border: 1.5px solid #606060;
     border-radius: 4px;
     cursor: pointer;
     flex-shrink: 0;
@@ -153,23 +178,45 @@ header h1 {
     font-weight: bold;
 }
 
-.task-text {
+.task-content {
     flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.task-text {
     font-size: 14px;
-    color: #37352f;
+    color: #ffffff;
     transition: all 0.2s;
 }
 
 .task-text.completed {
-    color: #a0a0a0;
+    color: #707070;
     text-decoration: line-through;
+}
+
+.task-date {
+    font-size: 12px;
+    color: #888888;
+    display: flex;
+    align-items: center;
+    gap: 4px;
+}
+
+.task-date.overdue {
+    color: #ff6b6b;
+}
+
+.task-date.today {
+    color: #ffd93d;
 }
 
 .delete-btn {
     opacity: 0;
     background: none;
     border: none;
-    color: #a0a0a0;
+    color: #888888;
     cursor: pointer;
     font-size: 18px;
     padding: 4px 8px;
@@ -182,14 +229,14 @@ header h1 {
 }
 
 .delete-btn:hover {
-    background: #ffe0e0;
-    color: #e74c3c;
+    background: #3a1a1a;
+    color: #ff6b6b;
 }
 
 .empty-state {
     text-align: center;
     padding: 60px 20px;
-    color: #a0a0a0;
+    color: #666666;
 }
 
 .empty-state.hidden {
@@ -219,6 +266,10 @@ header h1 {
     }
 
     .add-btn {
+        width: 100%;
+    }
+
+    .date-input {
         width: 100%;
     }
 }

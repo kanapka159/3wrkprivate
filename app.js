@@ -1,5 +1,6 @@
 // DOM Elements
 const taskInput = document.getElementById('taskInput');
+const dateInput = document.getElementById('dateInput');
 const addTaskBtn = document.getElementById('addTaskBtn');
 const taskList = document.getElementById('taskList');
 const taskCount = document.getElementById('taskCount');
@@ -34,11 +35,13 @@ function addTask() {
     const task = {
         id: Date.now(),
         text: taskText,
+        date: dateInput.value || null,
         completed: false
     };
 
     tasks.push(task);
     taskInput.value = '';
+    dateInput.value = '';
 
     saveTasks();
     renderTasks();
@@ -91,11 +94,42 @@ function createTaskElement(task) {
     checkbox.className = `task-checkbox ${task.completed ? 'checked' : ''}`;
     checkbox.addEventListener('click', () => toggleTask(task.id));
 
+    // Task content container
+    const taskContent = document.createElement('div');
+    taskContent.className = 'task-content';
+    taskContent.addEventListener('click', () => toggleTask(task.id));
+
     // Task text
-    const taskText = document.createElement('span');
+    const taskText = document.createElement('div');
     taskText.className = `task-text ${task.completed ? 'completed' : ''}`;
     taskText.textContent = task.text;
-    taskText.addEventListener('click', () => toggleTask(task.id));
+
+    taskContent.appendChild(taskText);
+
+    // Task date (if exists)
+    if (task.date) {
+        const taskDate = document.createElement('div');
+        const dateObj = new Date(task.date);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const taskDateObj = new Date(task.date);
+        taskDateObj.setHours(0, 0, 0, 0);
+
+        let dateClass = 'task-date';
+        let dateIcon = '📅';
+
+        if (taskDateObj < today && !task.completed) {
+            dateClass += ' overdue';
+            dateIcon = '⚠️';
+        } else if (taskDateObj.getTime() === today.getTime()) {
+            dateClass += ' today';
+            dateIcon = '⭐';
+        }
+
+        taskDate.className = dateClass;
+        taskDate.innerHTML = `${dateIcon} ${formatDate(task.date)}`;
+        taskContent.appendChild(taskDate);
+    }
 
     // Delete button
     const deleteBtn = document.createElement('button');
@@ -107,10 +141,30 @@ function createTaskElement(task) {
     });
 
     li.appendChild(checkbox);
-    li.appendChild(taskText);
+    li.appendChild(taskContent);
     li.appendChild(deleteBtn);
 
     return li;
+}
+
+// Format date for display
+function formatDate(dateString) {
+    const date = new Date(dateString);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const tomorrow = new Date(today);
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    const dateToCheck = new Date(dateString);
+    dateToCheck.setHours(0, 0, 0, 0);
+
+    if (dateToCheck.getTime() === today.getTime()) {
+        return 'Today';
+    } else if (dateToCheck.getTime() === tomorrow.getTime()) {
+        return 'Tomorrow';
+    } else {
+        const options = { month: 'short', day: 'numeric', year: 'numeric' };
+        return date.toLocaleDateString('en-US', options);
+    }
 }
 
 // Update task count
