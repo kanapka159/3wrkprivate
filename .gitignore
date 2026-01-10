@@ -1,0 +1,14 @@
+# MCP configuration (contains API keys)
+.mcp.json
+
+# Environment files
+.env
+.env.local
+.env.*.local
+
+# Node modules
+node_modules/
+
+# OS files
+.DS_Store
+Thumbs.db
