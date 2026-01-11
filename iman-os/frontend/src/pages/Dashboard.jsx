@@ -162,10 +162,6 @@ export default function Dashboard() {
           </h3>
           <div className="space-y-3">
             <div className="flex justify-between items-center">
-              <span className="text-gray-400">Open Rate</span>
-              <span className="text-white font-semibold">{formatPercent(metrics.open_rate || 0)}</span>
-            </div>
-            <div className="flex justify-between items-center">
               <span className="text-gray-400">Reply Rate</span>
               <span className="text-white font-semibold">{formatPercent(metrics.reply_rate || 0)}</span>
             </div>

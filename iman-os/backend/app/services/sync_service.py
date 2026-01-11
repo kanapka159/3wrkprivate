@@ -112,41 +112,33 @@ class SyncService:
                                 logger.info(f"Smartlead aggregate analytics keys: {list(aggregate_analytics.keys()) if isinstance(aggregate_analytics, dict) else type(aggregate_analytics)}")
                                 logger.info(f"Smartlead aggregate analytics sample: {aggregate_analytics}")
 
-                            # Update Campaign with aggregate stats (try multiple field name patterns)
+                            # Helper to safely convert string/int to int
+                            def to_int(val):
+                                if val is None:
+                                    return 0
+                                try:
+                                    return int(val)
+                                except (ValueError, TypeError):
+                                    return 0
+
+                            # Update Campaign with aggregate stats
+                            # Smartlead API returns values as STRINGS like "2893"
                             if isinstance(aggregate_analytics, dict):
+                                # Use unique_sent_count (unique leads) as primary, fall back to sent_count
                                 campaign.total_sent = (
-                                    aggregate_analytics.get("sent_count", 0) or
-                                    aggregate_analytics.get("total_sent_count", 0) or
-                                    aggregate_analytics.get("emails_sent_count", 0) or
-                                    aggregate_analytics.get("sent", 0) or 0
+                                    to_int(aggregate_analytics.get("unique_sent_count")) or
+                                    to_int(aggregate_analytics.get("sent_count"))
                                 )
-                                campaign.total_replied = (
-                                    aggregate_analytics.get("reply_count", 0) or
-                                    aggregate_analytics.get("total_reply_count", 0) or
-                                    aggregate_analytics.get("replied", 0) or
-                                    aggregate_analytics.get("replies", 0) or 0
-                                )
-                                campaign.total_positive = (
-                                    aggregate_analytics.get("positive_reply_count", 0) or
-                                    aggregate_analytics.get("positive_replies", 0) or
-                                    aggregate_analytics.get("positive", 0) or 0
-                                )
-                                campaign.total_opened = (
-                                    aggregate_analytics.get("open_count", 0) or
-                                    aggregate_analytics.get("opened", 0) or
-                                    aggregate_analytics.get("opens", 0) or 0
-                                )
-                                campaign.total_bounced = (
-                                    aggregate_analytics.get("bounce_count", 0) or
-                                    aggregate_analytics.get("bounced", 0) or
-                                    aggregate_analytics.get("bounces", 0) or 0
-                                )
-                                campaign.total_clicked = (
-                                    aggregate_analytics.get("click_count", 0) or
-                                    aggregate_analytics.get("clicked", 0) or
-                                    aggregate_analytics.get("clicks", 0) or 0
-                                )
-                                logger.info(f"Campaign {smartlead_id} aggregate: sent={campaign.total_sent}, replied={campaign.total_replied}, positive={campaign.total_positive}")
+                                campaign.total_replied = to_int(aggregate_analytics.get("reply_count"))
+                                campaign.total_bounced = to_int(aggregate_analytics.get("bounce_count"))
+                                campaign.total_opened = to_int(aggregate_analytics.get("open_count"))
+                                campaign.total_clicked = to_int(aggregate_analytics.get("click_count"))
+
+                                # Get positive replies from campaign_lead_stats.interested
+                                lead_stats = aggregate_analytics.get("campaign_lead_stats", {})
+                                campaign.total_positive = to_int(lead_stats.get("interested", 0))
+
+                                logger.info(f"Campaign {smartlead_id} aggregate: sent={campaign.total_sent}, replied={campaign.total_replied}, positive={campaign.total_positive}, bounced={campaign.total_bounced}")
 
                         except SmartleadAPIError as e:
                             logger.warning(f"Failed to get aggregate analytics for campaign {smartlead_id}: {e.message}")
