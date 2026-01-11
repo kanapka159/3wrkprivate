@@ -7,10 +7,10 @@ API endpoints for managing campaigns.
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func
+from sqlalchemy import select, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...db import get_db, Campaign, CampaignDailyStats, Sequence
+from ...db import get_db, Campaign, CampaignDailyStats, Sequence, LeadReply
 from ...services import SmartleadClient
 from ...services.smartlead import SmartleadAPIError
 from ...services.suggestion_engine import SuggestionEngine
@@ -35,13 +35,11 @@ async def list_campaigns(
     - client_id: Filter by client ID
     - only_suggestions: Only return campaigns that need action
     """
-    # Build subquery for aggregated stats
+    # Build subquery for aggregated stats from daily stats
     stats_subquery = (
         select(
             CampaignDailyStats.campaign_id,
             func.sum(CampaignDailyStats.unique_sent).label("total_sent"),
-            func.sum(CampaignDailyStats.unique_replied).label("total_replied"),
-            func.sum(CampaignDailyStats.positive_replies).label("total_positive"),
             func.sum(CampaignDailyStats.open_count).label("total_opens"),
             func.sum(CampaignDailyStats.bounce_count).label("total_bounces"),
         )
@@ -49,10 +47,22 @@ async def list_campaigns(
         .subquery()
     )
 
-    # Main query
+    # Build subquery for reply counts from LeadReply (more accurate than daily stats)
+    replies_subquery = (
+        select(
+            LeadReply.campaign_id,
+            func.count(LeadReply.id).label("total_replied"),
+            func.sum(case((LeadReply.is_positive == True, 1), else_=0)).label("total_positive"),
+        )
+        .group_by(LeadReply.campaign_id)
+        .subquery()
+    )
+
+    # Main query with both subqueries
     query = (
-        select(Campaign, stats_subquery)
+        select(Campaign, stats_subquery, replies_subquery)
         .outerjoin(stats_subquery, Campaign.id == stats_subquery.c.campaign_id)
+        .outerjoin(replies_subquery, Campaign.id == replies_subquery.c.campaign_id)
     )
 
     if status:
