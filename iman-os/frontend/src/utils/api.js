@@ -30,6 +30,9 @@ export const api = {
 
   getCampaign: (id) => request(`/campaigns/${id}`),
 
+  updateCampaignStatus: (campaignId, status) =>
+    request(`/campaigns/${campaignId}/status?status=${status}`, { method: 'POST' }),
+
   // Stats
   getOverview: (days = 7) => request(`/stats/overview?days=${days}`),
 
