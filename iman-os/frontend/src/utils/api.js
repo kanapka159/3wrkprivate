@@ -1,4 +1,5 @@
-const BASE_URL = '/api';
+// Use environment variable for API URL in production, relative path in development
+const BASE_URL = import.meta.env.VITE_API_URL || '/api';
 
 async function request(endpoint, options = {}) {
   const url = `${BASE_URL}${endpoint}`;
