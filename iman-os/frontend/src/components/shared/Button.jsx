@@ -1,6 +1,6 @@
 const variants = {
   primary: 'bg-accent hover:bg-accent/80 text-white',
-  secondary: 'bg-secondary hover:bg-card text-white',
+  secondary: 'bg-secondary hover:bg-card text-white border border-gray-700',
   danger: 'bg-danger hover:bg-danger/80 text-white',
   ghost: 'hover:bg-secondary text-gray-400 hover:text-white',
 };
@@ -28,7 +28,7 @@ export default function Button({
       className={`
         rounded-lg font-medium transition-colors
         disabled:opacity-50 disabled:cursor-not-allowed
-        flex items-center gap-2
+        flex items-center justify-center gap-2
         ${variants[variant]}
         ${sizes[size]}
         ${className}
@@ -36,7 +36,7 @@ export default function Button({
       {...props}
     >
       {loading && (
-        <svg className="animate-spin h-4 w-4\" viewBox="0 0 24 24">
+        <svg className="animate-spin h-4 w-4" viewBox="0 0 24 24">
           <circle
             className="opacity-25"
             cx="12"
