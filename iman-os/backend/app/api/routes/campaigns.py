@@ -22,7 +22,17 @@ router = APIRouter()
 def _get_period_stats(daily_stats_by_campaign: dict, campaign_id: int, cutoff_date: datetime) -> dict:
     """Calculate stats for a specific period."""
     stats = daily_stats_by_campaign.get(campaign_id, [])
-    period_stats = [s for s in stats if s["date"] >= cutoff_date]
+    # Convert cutoff to date for comparison (handles both date and datetime)
+    cutoff = cutoff_date.date() if hasattr(cutoff_date, 'date') else cutoff_date
+
+    period_stats = []
+    for s in stats:
+        stat_date = s["date"]
+        # Handle both datetime and date objects
+        if hasattr(stat_date, 'date'):
+            stat_date = stat_date.date()
+        if stat_date >= cutoff:
+            period_stats.append(s)
 
     sent = sum(s["sent"] for s in period_stats)
     opens = sum(s["opens"] for s in period_stats)
@@ -65,11 +75,13 @@ async def list_campaigns(
     campaigns = campaigns_result.scalars().all()
 
     # Get all daily stats for last 28 days (covers all periods)
+    # Use COALESCE to prefer unique_sent but fall back to sent_count
     daily_stats_result = await db.execute(
         select(
             CampaignDailyStats.campaign_id,
             CampaignDailyStats.date,
             CampaignDailyStats.unique_sent,
+            CampaignDailyStats.sent_count,
             CampaignDailyStats.open_count,
             CampaignDailyStats.bounce_count,
         ).where(CampaignDailyStats.date >= cutoff_28d)
@@ -81,9 +93,11 @@ async def list_campaigns(
         cid = row.campaign_id
         if cid not in daily_stats_by_campaign:
             daily_stats_by_campaign[cid] = []
+        # Use unique_sent if available, otherwise fall back to sent_count
+        sent_value = row.unique_sent if row.unique_sent and row.unique_sent > 0 else (row.sent_count or 0)
         daily_stats_by_campaign[cid].append({
             "date": row.date,
-            "sent": row.unique_sent or 0,
+            "sent": sent_value,
             "opens": row.open_count or 0,
             "bounces": row.bounce_count or 0,
         })

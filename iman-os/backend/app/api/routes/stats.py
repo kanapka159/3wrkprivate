@@ -49,18 +49,22 @@ async def get_stats_overview(
     stopped_campaigns = campaigns_by_status.get("STOPPED", 0)
 
     # Get aggregated stats for the period (sent, opens, bounces from daily stats)
+    # Use COALESCE logic: prefer unique_sent, fall back to sent_count
     period_stats = await db.execute(
         select(
             func.sum(CampaignDailyStats.unique_sent),
+            func.sum(CampaignDailyStats.sent_count),
             func.sum(CampaignDailyStats.open_count),
             func.sum(CampaignDailyStats.bounce_count),
         ).where(CampaignDailyStats.date >= cutoff_date)
     )
     row = period_stats.one()
 
-    sent = row[0] or 0
-    opens = row[1] or 0
-    bounces = row[2] or 0
+    unique_sent = row[0] or 0
+    total_sent = row[1] or 0
+    sent = unique_sent if unique_sent > 0 else total_sent
+    opens = row[2] or 0
+    bounces = row[3] or 0
 
     # Get reply counts from LeadReply table (more accurate than daily stats)
     reply_stats = await db.execute(
@@ -74,16 +78,21 @@ async def get_stats_overview(
     positive = reply_row[1] or 0
 
     # Get per-campaign stats: sent from daily stats, replies from LeadReply
-    # First get sent counts per campaign
+    # First get sent counts per campaign (prefer unique_sent, fall back to sent_count)
     sent_per_campaign = await db.execute(
         select(
             CampaignDailyStats.campaign_id,
-            func.sum(CampaignDailyStats.unique_sent).label("campaign_sent"),
+            func.sum(CampaignDailyStats.unique_sent).label("campaign_unique_sent"),
+            func.sum(CampaignDailyStats.sent_count).label("campaign_sent"),
         )
         .where(CampaignDailyStats.date >= cutoff_date)
         .group_by(CampaignDailyStats.campaign_id)
     )
-    sent_by_campaign = {r.campaign_id: r.campaign_sent or 0 for r in sent_per_campaign}
+    sent_by_campaign = {}
+    for r in sent_per_campaign:
+        unique = r.campaign_unique_sent or 0
+        total = r.campaign_sent or 0
+        sent_by_campaign[r.campaign_id] = unique if unique > 0 else total
 
     # Get reply counts per campaign from LeadReply
     replies_per_campaign = await db.execute(
