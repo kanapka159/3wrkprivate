@@ -1,11 +1,11 @@
 """
 Suggestion Engine Service
 
-Provides AI-powered suggestions for improving campaign performance.
+Generates actionable suggestions for campaign management based on performance thresholds.
 """
 
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional
 
 from sqlalchemy import select, func
@@ -19,56 +19,134 @@ logger = logging.getLogger(__name__)
 class SuggestionEngine:
     """Service for generating campaign improvement suggestions."""
 
-    # Industry benchmarks for cold email
-    BENCHMARKS = {
-        "open_rate": {"good": 40, "average": 25, "poor": 15},
-        "click_rate": {"good": 5, "average": 2.5, "poor": 1},
-        "reply_rate": {"good": 8, "average": 3, "poor": 1},
-        "bounce_rate": {"acceptable": 3, "warning": 5, "critical": 10},
-    }
+    # Thresholds for campaign actions
+    LOW_DATA_THRESHOLD = 200  # Minimum sends before making suggestions
+    KEEP_THRESHOLD = 2.0      # >= 2% reply rate = green (keep running)
+    MONITOR_THRESHOLD = 1.0   # >= 1% reply rate = yellow (monitor)
+    PAUSE_THRESHOLD = 0.5     # >= 0.5% reply rate = orange (pause)
+    # < 0.5% reply rate = red (kill)
+
+    # Colors for suggestions
+    COLOR_GREEN = "green"
+    COLOR_YELLOW = "yellow"
+    COLOR_ORANGE = "orange"
+    COLOR_RED = "red"
+    COLOR_GRAY = "gray"
 
     def __init__(self, db: AsyncSession):
         self.db = db
 
-    async def _get_campaign_rates(self, campaign_id: int) -> Optional[dict]:
-        """Get aggregated rates for a campaign."""
-        stats = await self.db.execute(
-            select(
-                func.sum(CampaignDailyStats.unique_sent),
-                func.sum(CampaignDailyStats.open_count),
-                func.sum(CampaignDailyStats.click_count),
-                func.sum(CampaignDailyStats.unique_replied),
-                func.sum(CampaignDailyStats.bounce_count),
-            ).where(CampaignDailyStats.campaign_id == campaign_id)
-        )
-        row = stats.one()
+    def generate_suggestion(self, campaign_data: dict) -> dict:
+        """
+        Generate a suggestion based on campaign performance data.
 
-        sent = row[0] or 0
-        if sent == 0:
-            return None
+        Args:
+            campaign_data: Dictionary with campaign metrics including:
+                - sent_count: Total emails sent
+                - reply_rate: Reply rate as percentage
+                - positive_rate: Positive reply rate (optional)
+                - trend: "up", "down", or "flat" (optional)
 
-        opens = row[1] or 0
-        clicks = row[2] or 0
-        replies = row[3] or 0
-        bounces = row[4] or 0
+        Returns:
+            Dictionary with suggestion, reason, and color
+        """
+        sent_count = campaign_data.get("sent_count", 0)
+        reply_rate = campaign_data.get("reply_rate", 0)
 
+        # Not enough data
+        if sent_count < self.LOW_DATA_THRESHOLD:
+            return {
+                "suggestion": "WAIT",
+                "reason": f"Only {sent_count} emails sent. Need {self.LOW_DATA_THRESHOLD} for reliable analysis.",
+                "color": self.COLOR_GRAY,
+            }
+
+        # KEEP - Green (>= 2% reply rate)
+        if reply_rate >= self.KEEP_THRESHOLD:
+            return {
+                "suggestion": "KEEP",
+                "reason": f"Strong performance with {reply_rate:.2f}% reply rate. Keep running.",
+                "color": self.COLOR_GREEN,
+            }
+
+        # MONITOR - Yellow (>= 1% reply rate)
+        if reply_rate >= self.MONITOR_THRESHOLD:
+            return {
+                "suggestion": "MONITOR",
+                "reason": f"Reply rate at {reply_rate:.2f}%. Monitor closely for improvement.",
+                "color": self.COLOR_YELLOW,
+            }
+
+        # PAUSE - Orange (>= 0.5% reply rate)
+        if reply_rate >= self.PAUSE_THRESHOLD:
+            return {
+                "suggestion": "PAUSE",
+                "reason": f"Low reply rate ({reply_rate:.2f}%). Consider pausing to optimize.",
+                "color": self.COLOR_ORANGE,
+            }
+
+        # KILL - Red (< 0.5% reply rate)
         return {
-            "sent_count": sent,
-            "open_rate": round((opens / sent * 100), 2),
-            "click_rate": round((clicks / sent * 100), 2),
-            "reply_rate": round((replies / sent * 100), 2),
-            "bounce_rate": round((bounces / sent * 100), 2),
+            "suggestion": "KILL",
+            "reason": f"Very low reply rate ({reply_rate:.2f}%). Stop campaign immediately.",
+            "color": self.COLOR_RED,
         }
 
-    async def get_campaign_suggestions(self, campaign_id: int) -> dict:
+    def generate_warnings(self, campaign_data: dict) -> list[str]:
         """
-        Get improvement suggestions for a specific campaign.
+        Generate warning messages based on campaign data.
+
+        Args:
+            campaign_data: Dictionary with campaign metrics including:
+                - reply_rate: Current reply rate
+                - previous_reply_rate: Reply rate from previous period (optional)
+                - positive_rate: Positive reply rate (optional)
+                - days_since_last_reply: Days since last reply (optional)
+                - sent_count: Total emails sent
+
+        Returns:
+            List of warning strings
+        """
+        warnings = []
+        sent_count = campaign_data.get("sent_count", 0)
+        reply_rate = campaign_data.get("reply_rate", 0)
+        previous_reply_rate = campaign_data.get("previous_reply_rate")
+        positive_rate = campaign_data.get("positive_rate", 0)
+        days_since_last_reply = campaign_data.get("days_since_last_reply")
+
+        # Skip warnings if not enough data
+        if sent_count < self.LOW_DATA_THRESHOLD:
+            return warnings
+
+        # Low Reply Rate warning
+        if reply_rate < self.MONITOR_THRESHOLD:
+            warnings.append("Low Reply Rate")
+
+        # Declining warning - reply rate dropped significantly
+        if previous_reply_rate is not None and previous_reply_rate > 0:
+            decline_pct = ((previous_reply_rate - reply_rate) / previous_reply_rate) * 100
+            if decline_pct >= 25:  # 25% or more decline
+                warnings.append("Declining")
+
+        # Low Quality warning - low positive rate among replies
+        if reply_rate > 0 and positive_rate < 30:  # Less than 30% positive
+            warnings.append("Low Quality")
+
+        # Stalled warning - no replies in a while
+        if days_since_last_reply is not None and days_since_last_reply >= 7:
+            warnings.append("Stalled")
+
+        return warnings
+
+    async def get_campaign_data(self, campaign_id: int) -> Optional[dict]:
+        """
+        Get campaign data needed for suggestion generation.
 
         Args:
             campaign_id: Local campaign ID
 
         Returns:
-            Dictionary with suggestions and analysis
+            Dictionary with campaign metrics or None if not found
         """
         result = await self.db.execute(
             select(Campaign).where(Campaign.id == campaign_id)
@@ -76,287 +154,83 @@ class SuggestionEngine:
         campaign = result.scalar_one_or_none()
 
         if not campaign:
-            raise ValueError(f"Campaign {campaign_id} not found")
+            return None
 
-        rates = await self._get_campaign_rates(campaign_id)
-
-        if not rates:
-            return {
-                "campaign_id": campaign_id,
-                "campaign_name": campaign.name,
-                "suggestions": [{
-                    "type": "info",
-                    "category": "general",
-                    "message": "Not enough data to generate suggestions. Sync daily stats first.",
-                }],
-                "health_score": None,
-            }
-
-        suggestions = []
-        health_score = 100
-
-        # Analyze open rate
-        open_suggestions, open_penalty = self._analyze_open_rate(rates["open_rate"])
-        suggestions.extend(open_suggestions)
-        health_score -= open_penalty
-
-        # Analyze click rate
-        click_suggestions, click_penalty = self._analyze_click_rate(
-            rates["click_rate"], rates["open_rate"]
+        # Get aggregated stats
+        stats = await self.db.execute(
+            select(
+                func.sum(CampaignDailyStats.unique_sent),
+                func.sum(CampaignDailyStats.unique_replied),
+                func.sum(CampaignDailyStats.positive_replies),
+            ).where(CampaignDailyStats.campaign_id == campaign_id)
         )
-        suggestions.extend(click_suggestions)
-        health_score -= click_penalty
+        row = stats.one()
 
-        # Analyze reply rate
-        reply_suggestions, reply_penalty = self._analyze_reply_rate(rates["reply_rate"])
-        suggestions.extend(reply_suggestions)
-        health_score -= reply_penalty
+        sent = row[0] or 0
+        replied = row[1] or 0
+        positive = row[2] or 0
 
-        # Analyze bounce rate
-        bounce_suggestions, bounce_penalty = self._analyze_bounce_rate(rates["bounce_rate"])
-        suggestions.extend(bounce_suggestions)
-        health_score -= bounce_penalty
+        reply_rate = (replied / sent * 100) if sent > 0 else 0
+        positive_rate = (positive / replied * 100) if replied > 0 else 0
 
-        health_score = max(0, health_score)
+        # Get previous period stats (7-14 days ago) for trend
+        cutoff_current = datetime.utcnow() - timedelta(days=7)
+        cutoff_previous = datetime.utcnow() - timedelta(days=14)
+
+        prev_stats = await self.db.execute(
+            select(
+                func.sum(CampaignDailyStats.unique_sent),
+                func.sum(CampaignDailyStats.unique_replied),
+            ).where(
+                CampaignDailyStats.campaign_id == campaign_id,
+                CampaignDailyStats.date >= cutoff_previous,
+                CampaignDailyStats.date < cutoff_current,
+            )
+        )
+        prev_row = prev_stats.one()
+        prev_sent = prev_row[0] or 0
+        prev_replied = prev_row[1] or 0
+        previous_reply_rate = (prev_replied / prev_sent * 100) if prev_sent > 0 else None
+
+        # Get days since last reply
+        last_reply = await self.db.execute(
+            select(func.max(CampaignDailyStats.date)).where(
+                CampaignDailyStats.campaign_id == campaign_id,
+                CampaignDailyStats.unique_replied > 0,
+            )
+        )
+        last_reply_date = last_reply.scalar()
+        days_since_last_reply = None
+        if last_reply_date:
+            days_since_last_reply = (datetime.utcnow().date() - last_reply_date).days
 
         return {
             "campaign_id": campaign_id,
             "campaign_name": campaign.name,
-            "health_score": health_score,
-            "health_status": self._get_health_status(health_score),
-            "metrics": {
-                "open_rate": {
-                    "value": rates["open_rate"],
-                    "benchmark": self.BENCHMARKS["open_rate"],
-                    "status": self._get_metric_status(rates["open_rate"], self.BENCHMARKS["open_rate"]),
-                },
-                "click_rate": {
-                    "value": rates["click_rate"],
-                    "benchmark": self.BENCHMARKS["click_rate"],
-                    "status": self._get_metric_status(rates["click_rate"], self.BENCHMARKS["click_rate"]),
-                },
-                "reply_rate": {
-                    "value": rates["reply_rate"],
-                    "benchmark": self.BENCHMARKS["reply_rate"],
-                    "status": self._get_metric_status(rates["reply_rate"], self.BENCHMARKS["reply_rate"]),
-                },
-                "bounce_rate": {
-                    "value": rates["bounce_rate"],
-                    "status": self._get_bounce_status(rates["bounce_rate"]),
-                },
-            },
-            "suggestions": suggestions,
+            "status": campaign.status,
+            "sent_count": sent,
+            "reply_count": replied,
+            "positive_count": positive,
+            "reply_rate": round(reply_rate, 2),
+            "positive_rate": round(positive_rate, 2),
+            "previous_reply_rate": round(previous_reply_rate, 2) if previous_reply_rate else None,
+            "days_since_last_reply": days_since_last_reply,
         }
 
-    def _analyze_open_rate(self, open_rate: float) -> tuple[list[dict], int]:
-        """Analyze open rate and return suggestions."""
-        suggestions = []
-        penalty = 0
-
-        if open_rate < self.BENCHMARKS["open_rate"]["poor"]:
-            penalty = 30
-            suggestions.extend([
-                {
-                    "type": "critical",
-                    "category": "subject_line",
-                    "message": "Open rate is critically low. Your subject lines need immediate attention.",
-                    "actions": [
-                        "Test shorter subject lines (under 50 characters)",
-                        "Add personalization (first name, company name)",
-                        "Create curiosity without being spammy",
-                        "Avoid spam trigger words (free, guarantee, act now)",
-                    ],
-                },
-                {
-                    "type": "warning",
-                    "category": "deliverability",
-                    "message": "Low opens may indicate deliverability issues.",
-                    "actions": [
-                        "Check if emails are landing in spam folders",
-                        "Verify sending domain authentication (SPF, DKIM, DMARC)",
-                        "Warm up new email accounts gradually",
-                    ],
-                },
-            ])
-        elif open_rate < self.BENCHMARKS["open_rate"]["average"]:
-            penalty = 15
-            suggestions.append({
-                "type": "warning",
-                "category": "subject_line",
-                "message": "Open rate is below average. Consider testing new subject lines.",
-                "actions": [
-                    "A/B test different subject line styles",
-                    "Try asking questions in subject lines",
-                    "Use numbers or specific data points",
-                ],
-            })
-        elif open_rate >= self.BENCHMARKS["open_rate"]["good"]:
-            suggestions.append({
-                "type": "success",
-                "category": "subject_line",
-                "message": "Great open rate! Your subject lines are performing well.",
-            })
-
-        return suggestions, penalty
-
-    def _analyze_click_rate(self, click_rate: float, open_rate: float) -> tuple[list[dict], int]:
-        """Analyze click rate and return suggestions."""
-        suggestions = []
-        penalty = 0
-
-        if open_rate < 10:
-            return suggestions, penalty
-
-        if click_rate < self.BENCHMARKS["click_rate"]["poor"]:
-            penalty = 20
-            suggestions.append({
-                "type": "warning",
-                "category": "email_content",
-                "message": "Click rate is low. Your email content may not be compelling enough.",
-                "actions": [
-                    "Make your CTA (call-to-action) clearer and more prominent",
-                    "Ensure links are visible and descriptive",
-                    "Test different value propositions",
-                    "Reduce the number of links to focus attention",
-                ],
-            })
-        elif click_rate < self.BENCHMARKS["click_rate"]["average"]:
-            penalty = 10
-            suggestions.append({
-                "type": "info",
-                "category": "email_content",
-                "message": "Click rate could be improved with better CTAs.",
-                "actions": [
-                    "Use action-oriented link text",
-                    "Position important links above the fold",
-                ],
-            })
-
-        return suggestions, penalty
-
-    def _analyze_reply_rate(self, reply_rate: float) -> tuple[list[dict], int]:
-        """Analyze reply rate and return suggestions."""
-        suggestions = []
-        penalty = 0
-
-        if reply_rate < self.BENCHMARKS["reply_rate"]["poor"]:
-            penalty = 25
-            suggestions.append({
-                "type": "critical",
-                "category": "engagement",
-                "message": "Reply rate is very low. Your emails aren't generating conversations.",
-                "actions": [
-                    "End emails with a clear, easy-to-answer question",
-                    "Make the ask smaller and less committal",
-                    "Show clear relevance to the recipient's situation",
-                    "Try a more conversational, less salesy tone",
-                    "Consider your targeting - are you reaching the right people?",
-                ],
-            })
-        elif reply_rate < self.BENCHMARKS["reply_rate"]["average"]:
-            penalty = 12
-            suggestions.append({
-                "type": "warning",
-                "category": "engagement",
-                "message": "Reply rate is below average. Consider optimizing your ask.",
-                "actions": [
-                    "Test different closing questions",
-                    "Provide more social proof or credibility",
-                    "Make the benefit to the recipient clearer",
-                ],
-            })
-        elif reply_rate >= self.BENCHMARKS["reply_rate"]["good"]:
-            suggestions.append({
-                "type": "success",
-                "category": "engagement",
-                "message": "Excellent reply rate! Your messaging is resonating well.",
-            })
-
-        return suggestions, penalty
-
-    def _analyze_bounce_rate(self, bounce_rate: float) -> tuple[list[dict], int]:
-        """Analyze bounce rate and return suggestions."""
-        suggestions = []
-        penalty = 0
-
-        if bounce_rate >= self.BENCHMARKS["bounce_rate"]["critical"]:
-            penalty = 30
-            suggestions.append({
-                "type": "critical",
-                "category": "list_quality",
-                "message": "Bounce rate is critically high! This will damage your sender reputation.",
-                "actions": [
-                    "IMMEDIATELY pause this campaign",
-                    "Verify all email addresses before sending",
-                    "Remove invalid emails from your list",
-                    "Use an email verification service",
-                    "Check your data source quality",
-                ],
-            })
-        elif bounce_rate >= self.BENCHMARKS["bounce_rate"]["warning"]:
-            penalty = 15
-            suggestions.append({
-                "type": "warning",
-                "category": "list_quality",
-                "message": "Bounce rate is elevated. Clean your email list to protect deliverability.",
-                "actions": [
-                    "Verify emails before adding to campaigns",
-                    "Remove hard bounces immediately",
-                    "Consider using double opt-in for new leads",
-                ],
-            })
-        elif bounce_rate <= self.BENCHMARKS["bounce_rate"]["acceptable"]:
-            suggestions.append({
-                "type": "success",
-                "category": "list_quality",
-                "message": "Bounce rate is healthy. Your list quality is good.",
-            })
-
-        return suggestions, penalty
-
-    def _get_metric_status(self, value: float, benchmark: dict) -> str:
-        """Get status label for a metric."""
-        if value >= benchmark["good"]:
-            return "good"
-        elif value >= benchmark["average"]:
-            return "average"
-        elif value >= benchmark["poor"]:
-            return "below_average"
-        return "poor"
-
-    def _get_bounce_status(self, value: float) -> str:
-        """Get status label for bounce rate."""
-        if value <= self.BENCHMARKS["bounce_rate"]["acceptable"]:
-            return "good"
-        elif value <= self.BENCHMARKS["bounce_rate"]["warning"]:
-            return "warning"
-        return "critical"
-
-    def _get_health_status(self, score: int) -> str:
-        """Get overall health status from score."""
-        if score >= 80:
-            return "healthy"
-        elif score >= 60:
-            return "needs_attention"
-        elif score >= 40:
-            return "at_risk"
-        return "critical"
-
-    async def get_global_suggestions(self) -> dict:
+    async def get_campaigns_needing_action(self) -> list[dict]:
         """
-        Get suggestions across all campaigns.
+        Get all campaigns that need attention with suggestions.
 
         Returns:
-            Dictionary with global suggestions
+            List of campaigns with their suggestions and warnings
         """
-        # Get all campaigns with aggregated stats
+        # Get all campaigns with stats
         subquery = (
             select(
                 CampaignDailyStats.campaign_id,
                 func.sum(CampaignDailyStats.unique_sent).label("total_sent"),
-                func.sum(CampaignDailyStats.open_count).label("total_opens"),
-                func.sum(CampaignDailyStats.unique_replied).label("total_replies"),
-                func.sum(CampaignDailyStats.bounce_count).label("total_bounces"),
+                func.sum(CampaignDailyStats.unique_replied).label("total_replied"),
+                func.sum(CampaignDailyStats.positive_replies).label("total_positive"),
             )
             .group_by(CampaignDailyStats.campaign_id)
             .subquery()
@@ -365,87 +239,60 @@ class SuggestionEngine:
         result = await self.db.execute(
             select(Campaign, subquery)
             .join(subquery, Campaign.id == subquery.c.campaign_id)
-            .where(subquery.c.total_sent > 0)
+            .where(Campaign.status == "STARTED")  # Only active campaigns
         )
         rows = result.all()
 
-        if not rows:
-            return {
-                "total_campaigns": 0,
-                "suggestions": [{
-                    "type": "info",
-                    "message": "No campaign data available. Sync your campaigns first.",
-                }],
-            }
+        campaigns_needing_action = []
 
-        # Calculate metrics for each campaign
-        campaigns_data = []
         for row in rows:
             campaign = row[0]
             sent = row.total_sent or 0
-            opens = row.total_opens or 0
-            replies = row.total_replies or 0
-            bounces = row.total_bounces or 0
+            replied = row.total_replied or 0
+            positive = row.total_positive or 0
 
-            if sent > 0:
-                campaigns_data.append({
-                    "campaign": campaign,
-                    "open_rate": (opens / sent * 100),
-                    "reply_rate": (replies / sent * 100),
-                    "bounce_rate": (bounces / sent * 100),
-                })
+            reply_rate = (replied / sent * 100) if sent > 0 else 0
+            positive_rate = (positive / replied * 100) if replied > 0 else 0
 
-        total_campaigns = len(campaigns_data)
-        if total_campaigns == 0:
-            return {
-                "total_campaigns": 0,
-                "suggestions": [{"type": "info", "message": "No campaign data available."}],
+            campaign_data = {
+                "campaign_id": campaign.id,
+                "campaign_name": campaign.name,
+                "sent_count": sent,
+                "reply_rate": reply_rate,
+                "positive_rate": positive_rate,
             }
 
-        avg_open_rate = sum(c["open_rate"] for c in campaigns_data) / total_campaigns
-        avg_reply_rate = sum(c["reply_rate"] for c in campaigns_data) / total_campaigns
-        avg_bounce_rate = sum(c["bounce_rate"] for c in campaigns_data) / total_campaigns
+            suggestion = self.generate_suggestion(campaign_data)
+            warnings = self.generate_warnings(campaign_data)
 
-        critical_count = sum(1 for c in campaigns_data if c["bounce_rate"] > 5 or c["reply_rate"] < 1)
-        warning_count = sum(
-            1 for c in campaigns_data
-            if (c["open_rate"] < 25 or c["reply_rate"] < 3) and not (c["bounce_rate"] > 5 or c["reply_rate"] < 1)
+            # Only include campaigns that need action (not green/keep)
+            if suggestion["color"] != self.COLOR_GREEN or warnings:
+                campaigns_needing_action.append({
+                    "campaign_id": campaign.id,
+                    "smartlead_id": campaign.smartlead_id,
+                    "campaign_name": campaign.name,
+                    "status": campaign.status,
+                    "sent_count": sent,
+                    "reply_count": replied,
+                    "reply_rate": round(reply_rate, 2),
+                    "positive_rate": round(positive_rate, 2),
+                    "suggestion": suggestion,
+                    "warnings": warnings,
+                })
+
+        # Sort by severity (red first, then orange, yellow, gray)
+        color_order = {
+            self.COLOR_RED: 0,
+            self.COLOR_ORANGE: 1,
+            self.COLOR_YELLOW: 2,
+            self.COLOR_GRAY: 3,
+            self.COLOR_GREEN: 4,
+        }
+        campaigns_needing_action.sort(
+            key=lambda x: color_order.get(x["suggestion"]["color"], 5)
         )
 
-        suggestions = []
-
-        if critical_count > 0:
-            suggestions.append({
-                "type": "critical",
-                "message": f"{critical_count} campaign(s) need immediate attention due to critical issues.",
-            })
-
-        if warning_count > 0:
-            suggestions.append({
-                "type": "warning",
-                "message": f"{warning_count} campaign(s) are underperforming and could be optimized.",
-            })
-
-        if avg_bounce_rate > 3:
-            suggestions.append({
-                "type": "warning",
-                "category": "list_quality",
-                "message": f"Average bounce rate ({avg_bounce_rate:.1f}%) is elevated across campaigns.",
-                "actions": ["Implement email verification for all new leads"],
-            })
-
-        return {
-            "total_campaigns": total_campaigns,
-            "averages": {
-                "open_rate": round(avg_open_rate, 2),
-                "reply_rate": round(avg_reply_rate, 2),
-                "bounce_rate": round(avg_bounce_rate, 2),
-            },
-            "campaigns_critical": critical_count,
-            "campaigns_warning": warning_count,
-            "campaigns_healthy": total_campaigns - critical_count - warning_count,
-            "suggestions": suggestions,
-        }
+        return campaigns_needing_action
 
     async def save_suggestion(
         self,
