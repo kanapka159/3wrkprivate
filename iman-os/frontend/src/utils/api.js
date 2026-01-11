@@ -1,5 +1,9 @@
 // Backend API URL - hardcoded for Railway deployment
-const BASE_URL = import.meta.env.VITE_API_URL || 'https://3wrkprivate-production.up.railway.app/api';
+// Always ensure HTTPS to avoid mixed content errors
+let BASE_URL = import.meta.env.VITE_API_URL || 'https://3wrkprivate-production.up.railway.app/api';
+if (BASE_URL.startsWith('http://')) {
+  BASE_URL = BASE_URL.replace('http://', 'https://');
+}
 
 async function request(endpoint, options = {}) {
   const url = `${BASE_URL}${endpoint}`;
