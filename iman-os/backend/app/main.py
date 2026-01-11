@@ -5,6 +5,7 @@ FastAPI application for Smartlead campaign analytics and management.
 """
 
 import os
+import sys
 import logging
 from contextlib import asynccontextmanager
 
@@ -31,6 +32,13 @@ async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     # Startup
     logger.info("Starting IMAN OS Backend...")
+
+    # Check for required API key
+    if not os.getenv("SMARTLEAD_API_KEY"):
+        logger.error("SMARTLEAD_API_KEY not set! Please configure .env file.")
+        sys.exit(1)
+
+    logger.info("API key configured")
     logger.info("Creating database tables...")
     await init_db()
     logger.info("Database initialized - all tables created")
@@ -74,7 +82,7 @@ async def root():
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
-    return {"status": "healthy"}
+    return {"status": "ok"}
 
 
 if __name__ == "__main__":
