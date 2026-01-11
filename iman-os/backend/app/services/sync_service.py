@@ -101,7 +101,57 @@ class SyncService:
                         campaign = await self._upsert_campaign(campaign_data)
                         await asyncio.sleep(API_DELAY)
 
-                        # 3b: Get analytics by date (last 28 days)
+                        # 3b: Get AGGREGATE analytics (all-time totals) - this is what Smartlead UI shows
+                        try:
+                            aggregate_analytics = await client.get_campaign_analytics(smartlead_id)
+                            await asyncio.sleep(API_DELAY)
+
+                            # Log the response for debugging
+                            if not hasattr(self, '_logged_aggregate_keys'):
+                                self._logged_aggregate_keys = True
+                                logger.info(f"Smartlead aggregate analytics keys: {list(aggregate_analytics.keys()) if isinstance(aggregate_analytics, dict) else type(aggregate_analytics)}")
+                                logger.info(f"Smartlead aggregate analytics sample: {aggregate_analytics}")
+
+                            # Update Campaign with aggregate stats (try multiple field name patterns)
+                            if isinstance(aggregate_analytics, dict):
+                                campaign.total_sent = (
+                                    aggregate_analytics.get("sent_count", 0) or
+                                    aggregate_analytics.get("total_sent_count", 0) or
+                                    aggregate_analytics.get("emails_sent_count", 0) or
+                                    aggregate_analytics.get("sent", 0) or 0
+                                )
+                                campaign.total_replied = (
+                                    aggregate_analytics.get("reply_count", 0) or
+                                    aggregate_analytics.get("total_reply_count", 0) or
+                                    aggregate_analytics.get("replied", 0) or
+                                    aggregate_analytics.get("replies", 0) or 0
+                                )
+                                campaign.total_positive = (
+                                    aggregate_analytics.get("positive_reply_count", 0) or
+                                    aggregate_analytics.get("positive_replies", 0) or
+                                    aggregate_analytics.get("positive", 0) or 0
+                                )
+                                campaign.total_opened = (
+                                    aggregate_analytics.get("open_count", 0) or
+                                    aggregate_analytics.get("opened", 0) or
+                                    aggregate_analytics.get("opens", 0) or 0
+                                )
+                                campaign.total_bounced = (
+                                    aggregate_analytics.get("bounce_count", 0) or
+                                    aggregate_analytics.get("bounced", 0) or
+                                    aggregate_analytics.get("bounces", 0) or 0
+                                )
+                                campaign.total_clicked = (
+                                    aggregate_analytics.get("click_count", 0) or
+                                    aggregate_analytics.get("clicked", 0) or
+                                    aggregate_analytics.get("clicks", 0) or 0
+                                )
+                                logger.info(f"Campaign {smartlead_id} aggregate: sent={campaign.total_sent}, replied={campaign.total_replied}, positive={campaign.total_positive}")
+
+                        except SmartleadAPIError as e:
+                            logger.warning(f"Failed to get aggregate analytics for campaign {smartlead_id}: {e.message}")
+
+                        # 3c: Get analytics by date (last 28 days) for period breakdowns
                         end_date = datetime.utcnow().strftime("%Y-%m-%d")
                         start_date = (datetime.utcnow() - timedelta(days=28)).strftime("%Y-%m-%d")
 
@@ -116,14 +166,14 @@ class SyncService:
                                 await self._upsert_daily_stats(campaign.id, day_data)
 
                         except SmartleadAPIError as e:
-                            logger.warning(f"Failed to get analytics for campaign {smartlead_id}: {e.message}")
+                            logger.warning(f"Failed to get daily analytics for campaign {smartlead_id}: {e.message}")
 
-                        # 3c: Paginate ALL statistics
+                        # 3d: Paginate ALL statistics
                         try:
                             all_stats = await self._paginate_statistics(client, smartlead_id)
                             await asyncio.sleep(API_DELAY)
 
-                            # 3d: Dedupe replies and count
+                            # Dedupe replies and count
                             replies_count, positive_count = await self._dedupe_replies(
                                 campaign.id, all_stats
                             )
@@ -135,7 +185,7 @@ class SyncService:
                         except SmartleadAPIError as e:
                             logger.warning(f"Failed to get statistics for campaign {smartlead_id}: {e.message}")
 
-                        # 3e: Get sequences
+                        # 3e: Get sequences (email variants)
                         try:
                             sequences_data = await client.get_campaign_sequences(smartlead_id)
                             await asyncio.sleep(API_DELAY)

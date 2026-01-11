@@ -26,6 +26,14 @@ class Campaign(Base):
     created_at = Column(DateTime, default=datetime.utcnow)
     last_synced_at = Column(DateTime, nullable=True)
 
+    # Aggregate stats from Smartlead (all-time totals)
+    total_sent = Column(Integer, default=0)
+    total_replied = Column(Integer, default=0)
+    total_positive = Column(Integer, default=0)
+    total_opened = Column(Integer, default=0)
+    total_bounced = Column(Integer, default=0)
+    total_clicked = Column(Integer, default=0)
+
     # Relationships
     daily_stats = relationship("CampaignDailyStats", back_populates="campaign", cascade="all, delete-orphan")
     sequences = relationship("Sequence", back_populates="campaign", cascade="all, delete-orphan")
