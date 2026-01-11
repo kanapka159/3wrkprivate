@@ -114,14 +114,23 @@ class SyncService:
                         start_date = (datetime.utcnow() - timedelta(days=28)).strftime("%Y-%m-%d")
 
                         try:
-                            daily_analytics = await client.get_campaign_analytics_by_date(
+                            analytics_response = await client.get_campaign_analytics_by_date(
                                 smartlead_id, start_date, end_date
                             )
                             await asyncio.sleep(API_DELAY)
 
+                            # Handle different response formats
+                            if isinstance(analytics_response, dict):
+                                daily_analytics = analytics_response.get("data", [])
+                            elif isinstance(analytics_response, list):
+                                daily_analytics = analytics_response
+                            else:
+                                daily_analytics = []
+
                             # Store daily stats
                             for day_data in daily_analytics:
-                                await self._upsert_daily_stats(campaign.id, day_data)
+                                if isinstance(day_data, dict):
+                                    await self._upsert_daily_stats(campaign.id, day_data)
 
                         except SmartleadAPIError as e:
                             logger.warning(f"Failed to get analytics for campaign {smartlead_id}: {e.message}")
@@ -145,11 +154,20 @@ class SyncService:
 
                         # 3e: Get sequences
                         try:
-                            sequences_data = await client.get_campaign_sequences(smartlead_id)
+                            sequences_response = await client.get_campaign_sequences(smartlead_id)
                             await asyncio.sleep(API_DELAY)
 
+                            # Handle different response formats
+                            if isinstance(sequences_response, dict):
+                                sequences_data = sequences_response.get("data", [])
+                            elif isinstance(sequences_response, list):
+                                sequences_data = sequences_response
+                            else:
+                                sequences_data = []
+
                             for seq_data in sequences_data:
-                                await self._upsert_sequence(campaign.id, seq_data)
+                                if isinstance(seq_data, dict):
+                                    await self._upsert_sequence(campaign.id, seq_data)
 
                         except SmartleadAPIError as e:
                             logger.warning(f"Failed to get sequences for campaign {smartlead_id}: {e.message}")
