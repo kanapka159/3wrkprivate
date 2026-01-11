@@ -85,8 +85,16 @@ class SyncService:
             async with SmartleadClient() as client:
                 # Step 2: Fetch all campaigns
                 logger.info("Fetching all campaigns from Smartlead...")
-                campaigns_data = await client.get_all_campaigns()
+                campaigns_response = await client.get_all_campaigns()
                 await asyncio.sleep(API_DELAY)
+
+                # Handle different response formats (list vs {"data": [...]})
+                if isinstance(campaigns_response, dict):
+                    campaigns_data = campaigns_response.get("data", [])
+                elif isinstance(campaigns_response, list):
+                    campaigns_data = campaigns_response
+                else:
+                    campaigns_data = []
 
                 logger.info(f"Found {len(campaigns_data)} campaigns to sync")
 
@@ -451,7 +459,15 @@ class SyncService:
 
         try:
             async with SmartleadClient() as client:
-                campaigns_data = await client.get_all_campaigns()
+                campaigns_response = await client.get_all_campaigns()
+
+                # Handle different response formats
+                if isinstance(campaigns_response, dict):
+                    campaigns_data = campaigns_response.get("data", [])
+                elif isinstance(campaigns_response, list):
+                    campaigns_data = campaigns_response
+                else:
+                    campaigns_data = []
 
                 for campaign_data in campaigns_data:
                     await self._upsert_campaign(campaign_data)
