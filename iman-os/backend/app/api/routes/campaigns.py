@@ -102,6 +102,26 @@ async def list_campaigns(
             "bounces": row.bounce_count or 0,
         })
 
+    # Also get ALL-TIME stats as fallback (for campaigns with incomplete daily data)
+    alltime_stats_result = await db.execute(
+        select(
+            CampaignDailyStats.campaign_id,
+            func.sum(CampaignDailyStats.unique_sent).label("total_unique_sent"),
+            func.sum(CampaignDailyStats.sent_count).label("total_sent"),
+            func.sum(CampaignDailyStats.open_count).label("total_opens"),
+            func.sum(CampaignDailyStats.bounce_count).label("total_bounces"),
+        ).group_by(CampaignDailyStats.campaign_id)
+    )
+    alltime_by_campaign = {}
+    for r in alltime_stats_result:
+        unique = r.total_unique_sent or 0
+        total = r.total_sent or 0
+        alltime_by_campaign[r.campaign_id] = {
+            "sent": unique if unique > 0 else total,
+            "opens": r.total_opens or 0,
+            "bounces": r.total_bounces or 0,
+        }
+
     # Get reply counts from LeadReply (total per campaign)
     replies_result = await db.execute(
         select(
@@ -124,20 +144,22 @@ async def list_campaigns(
         replied = reply_data["replied"]
         positive = reply_data["positive"]
 
+        # Get alltime stats as fallback
+        alltime = alltime_by_campaign.get(cid, {"sent": 0, "opens": 0, "bounces": 0})
+        alltime_sent = alltime["sent"]
+
         # Calculate period-specific stats
         stats_7d = _get_period_stats(daily_stats_by_campaign, cid, cutoff_7d)
         stats_14d = _get_period_stats(daily_stats_by_campaign, cid, cutoff_14d)
         stats_28d = _get_period_stats(daily_stats_by_campaign, cid, cutoff_28d)
 
-        # Calculate rates for each period using total replies (we don't have per-period reply data)
-        # Use 28d sent as the base for reply rate calculation
-        sent_28d = stats_28d["sent_count"]
-        reply_rate = round((replied / sent_28d * 100), 2) if sent_28d > 0 else 0
-        positive_rate = round((positive / replied * 100), 2) if replied > 0 else 0
+        # Use alltime as fallback if period stats are 0
+        sent_7d = stats_7d["sent_count"] if stats_7d["sent_count"] > 0 else alltime_sent
+        sent_14d = stats_14d["sent_count"] if stats_14d["sent_count"] > 0 else alltime_sent
+        sent_28d = stats_28d["sent_count"] if stats_28d["sent_count"] > 0 else alltime_sent
 
-        # Period-specific rates
-        sent_7d = stats_7d["sent_count"]
-        sent_14d = stats_14d["sent_count"]
+        # Calculate rates for each period using total replies (we don't have per-period reply data)
+        positive_rate = round((positive / replied * 100), 2) if replied > 0 else 0
 
         # For reply rate, we use total replies / period sent (approximation)
         reply_rate_7d = round((replied / sent_7d * 100), 2) if sent_7d > 0 else 0
