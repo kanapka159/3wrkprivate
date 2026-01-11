@@ -122,10 +122,18 @@ class SyncService:
                             # Handle different response formats
                             if isinstance(analytics_response, dict):
                                 daily_analytics = analytics_response.get("data", [])
+                                # Log sample data to debug field names
+                                if daily_analytics:
+                                    logger.info(f"Analytics sample for campaign {smartlead_id}: {daily_analytics[0] if daily_analytics else 'empty'}")
                             elif isinstance(analytics_response, list):
                                 daily_analytics = analytics_response
+                                if daily_analytics:
+                                    logger.info(f"Analytics sample for campaign {smartlead_id}: {daily_analytics[0] if daily_analytics else 'empty'}")
                             else:
                                 daily_analytics = []
+                                logger.warning(f"Unexpected analytics response type for campaign {smartlead_id}: {type(analytics_response)}")
+
+                            logger.info(f"Got {len(daily_analytics)} days of analytics for campaign {smartlead_id}")
 
                             # Store daily stats
                             for day_data in daily_analytics:
@@ -405,27 +413,45 @@ class SyncService:
         )
         daily_stats = result.scalar_one_or_none()
 
+        # Helper to get value from multiple possible field names
+        def get_val(*keys):
+            for key in keys:
+                val = stats_data.get(key)
+                if val is not None and val != 0:
+                    return val
+            return 0
+
+        # Extract values using various possible field names from Smartlead API
+        sent = get_val("sent_count", "sent", "emails_sent", "total_sent")
+        replied = get_val("reply_count", "replied", "replies", "total_replied")
+        unique_sent = get_val("unique_sent_count", "unique_sent", "unique_emails_sent")
+        unique_replied = get_val("unique_reply_count", "unique_replied", "unique_replies")
+        positive = get_val("positive_reply_count", "positive_replies", "positive_replied")
+        bounced = get_val("bounce_count", "bounced", "bounces", "total_bounced")
+        opened = get_val("open_count", "opened", "opens", "total_opened")
+        clicked = get_val("click_count", "clicked", "clicks", "total_clicked")
+
         if daily_stats:
-            daily_stats.sent_count = stats_data.get("sent_count", 0) or 0
-            daily_stats.reply_count = stats_data.get("reply_count", 0) or 0
-            daily_stats.unique_sent = stats_data.get("unique_sent_count", 0) or stats_data.get("unique_sent", 0) or 0
-            daily_stats.unique_replied = stats_data.get("unique_reply_count", 0) or stats_data.get("unique_replied", 0) or 0
-            daily_stats.positive_replies = stats_data.get("positive_reply_count", 0) or stats_data.get("positive_replies", 0) or 0
-            daily_stats.bounce_count = stats_data.get("bounce_count", 0) or 0
-            daily_stats.open_count = stats_data.get("open_count", 0) or 0
-            daily_stats.click_count = stats_data.get("click_count", 0) or 0
+            daily_stats.sent_count = sent
+            daily_stats.reply_count = replied
+            daily_stats.unique_sent = unique_sent or sent  # fallback to sent if no unique
+            daily_stats.unique_replied = unique_replied or replied
+            daily_stats.positive_replies = positive
+            daily_stats.bounce_count = bounced
+            daily_stats.open_count = opened
+            daily_stats.click_count = clicked
         else:
             daily_stats = CampaignDailyStats(
                 campaign_id=campaign_id,
                 date=date,
-                sent_count=stats_data.get("sent_count", 0) or 0,
-                reply_count=stats_data.get("reply_count", 0) or 0,
-                unique_sent=stats_data.get("unique_sent_count", 0) or stats_data.get("unique_sent", 0) or 0,
-                unique_replied=stats_data.get("unique_reply_count", 0) or stats_data.get("unique_replied", 0) or 0,
-                positive_replies=stats_data.get("positive_reply_count", 0) or stats_data.get("positive_replies", 0) or 0,
-                bounce_count=stats_data.get("bounce_count", 0) or 0,
-                open_count=stats_data.get("open_count", 0) or 0,
-                click_count=stats_data.get("click_count", 0) or 0,
+                sent_count=sent,
+                reply_count=replied,
+                unique_sent=unique_sent or sent,
+                unique_replied=unique_replied or replied,
+                positive_replies=positive,
+                bounce_count=bounced,
+                open_count=opened,
+                click_count=clicked,
             )
             self.db.add(daily_stats)
 
