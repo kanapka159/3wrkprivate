@@ -3,6 +3,10 @@
     "exa": {
       "command": "npx",
       "args": ["-y", "mcp-remote", "https://mcp.exa.ai/mcp?tools=web_search_exa,get_code_context_exa,crawling_exa,company_research_exa,linkedin_search_exa,deep_researcher_start,deep_researcher_check"]
+    },
+    "Railway": {
+      "command": "npx",
+      "args": ["-y", "@railway/mcp-server"]
     }
   }
 }
