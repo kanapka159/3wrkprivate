@@ -333,21 +333,21 @@ export default function CampaignHealth() {
                       {/* 14D Sent */}
                       <td className="px-4 py-3 text-right">
                         <span className="text-white text-sm">
-                          {formatNumber(periods['14_days']?.sent_count || 0)}
+                          {formatNumber(periods['14_days']?.sent_count || stats.sent_count || 0)}
                         </span>
                       </td>
 
                       {/* 14D Rate */}
                       <td className="px-4 py-3 text-right">
-                        <span className={`text-sm font-medium ${getRateColor(periods['14_days']?.reply_rate || 0)}`}>
-                          {formatPercent(periods['14_days']?.reply_rate || 0)}
+                        <span className={`text-sm font-medium ${getRateColor(periods['14_days']?.reply_rate || stats.reply_rate || 0)}`}>
+                          {formatPercent(periods['14_days']?.reply_rate || stats.reply_rate || 0)}
                         </span>
                       </td>
 
                       {/* 28D Rate */}
                       <td className="px-4 py-3 text-right">
-                        <span className={`text-sm font-medium ${getRateColor(periods['28_days']?.reply_rate || 0)}`}>
-                          {formatPercent(periods['28_days']?.reply_rate || 0)}
+                        <span className={`text-sm font-medium ${getRateColor(periods['28_days']?.reply_rate || stats.reply_rate || 0)}`}>
+                          {formatPercent(periods['28_days']?.reply_rate || stats.reply_rate || 0)}
                         </span>
                       </td>
 
