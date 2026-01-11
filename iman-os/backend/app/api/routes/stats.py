@@ -32,7 +32,9 @@ async def get_stats_overview(
     - Positive reply rate
     - Campaigns needing action count
     """
-    cutoff_date = datetime.utcnow() - timedelta(days=days)
+    # Fix: Set cutoff to start of day (midnight) to include full days
+    # Daily stats are stored at midnight, so comparing with current time would exclude partial days
+    cutoff_date = (datetime.utcnow() - timedelta(days=days)).replace(hour=0, minute=0, second=0, microsecond=0)
 
     # Get campaign counts by status
     status_counts = await db.execute(
