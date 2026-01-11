@@ -379,16 +379,48 @@ class SyncService:
         )
         daily_stats = result.scalar_one_or_none()
 
-        # Extract values with fallbacks - Smartlead API may not provide "unique_" prefixed fields
-        # Fall back to regular counts if unique variants don't exist
-        sent_count = stats_data.get("sent_count", 0) or 0
-        reply_count = stats_data.get("reply_count", 0) or 0
-        unique_sent = stats_data.get("unique_sent_count", 0) or stats_data.get("unique_sent", 0) or sent_count
-        unique_replied = stats_data.get("unique_reply_count", 0) or stats_data.get("unique_replied", 0) or reply_count
-        positive_replies = stats_data.get("positive_reply_count", 0) or stats_data.get("positive_replies", 0) or 0
-        bounce_count = stats_data.get("bounce_count", 0) or 0
-        open_count = stats_data.get("open_count", 0) or 0
-        click_count = stats_data.get("click_count", 0) or 0
+        # Extract values with fallbacks - Smartlead API may use various field names
+        # Try multiple possible field names for each metric
+        sent_count = (
+            stats_data.get("sent_count", 0) or
+            stats_data.get("emails_sent", 0) or
+            stats_data.get("total_sent", 0) or
+            stats_data.get("sent", 0) or 0
+        )
+        reply_count = (
+            stats_data.get("reply_count", 0) or
+            stats_data.get("replies", 0) or
+            stats_data.get("total_replies", 0) or 0
+        )
+        unique_sent = (
+            stats_data.get("unique_sent_count", 0) or
+            stats_data.get("unique_sent", 0) or
+            sent_count
+        )
+        unique_replied = (
+            stats_data.get("unique_reply_count", 0) or
+            stats_data.get("unique_replied", 0) or
+            reply_count
+        )
+        positive_replies = (
+            stats_data.get("positive_reply_count", 0) or
+            stats_data.get("positive_replies", 0) or 0
+        )
+        bounce_count = (
+            stats_data.get("bounce_count", 0) or
+            stats_data.get("bounced", 0) or
+            stats_data.get("bounces", 0) or 0
+        )
+        open_count = (
+            stats_data.get("open_count", 0) or
+            stats_data.get("opened", 0) or
+            stats_data.get("opens", 0) or 0
+        )
+        click_count = (
+            stats_data.get("click_count", 0) or
+            stats_data.get("clicked", 0) or
+            stats_data.get("clicks", 0) or 0
+        )
 
         if daily_stats:
             daily_stats.sent_count = sent_count
