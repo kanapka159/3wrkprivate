@@ -4,7 +4,7 @@ Sync Routes
 API endpoints for data synchronization with Smartlead.
 """
 
-from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db import get_db
@@ -33,17 +33,59 @@ async def sync_campaigns(
         raise HTTPException(status_code=500, detail=str(e))
 
 
-@router.post("/analytics/{campaign_id}")
-async def sync_campaign_analytics(
+@router.post("/daily-stats/{campaign_id}")
+async def sync_campaign_daily_stats(
+    campaign_id: int,
+    start_date: str = Query(..., description="Start date (YYYY-MM-DD)"),
+    end_date: str = Query(..., description="End date (YYYY-MM-DD)"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Sync daily statistics for a specific campaign.
+    """
+    sync_service = SyncService(db)
+    try:
+        result = await sync_service.sync_campaign_daily_stats(campaign_id, start_date, end_date)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except SmartleadAPIError as e:
+        raise HTTPException(status_code=e.status_code or 500, detail=e.message)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/sequences/{campaign_id}")
+async def sync_campaign_sequences(
     campaign_id: int,
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Sync analytics for a specific campaign.
+    Sync email sequences for a specific campaign.
     """
     sync_service = SyncService(db)
     try:
-        result = await sync_service.sync_campaign_analytics(campaign_id)
+        result = await sync_service.sync_sequences(campaign_id)
+        return result
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except SmartleadAPIError as e:
+        raise HTTPException(status_code=e.status_code or 500, detail=e.message)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/lead-replies/{campaign_id}")
+async def sync_campaign_lead_replies(
+    campaign_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Sync lead replies for a specific campaign.
+    """
+    sync_service = SyncService(db)
+    try:
+        result = await sync_service.sync_lead_replies(campaign_id)
         return result
     except ValueError as e:
         raise HTTPException(status_code=404, detail=str(e))
@@ -58,7 +100,7 @@ async def sync_all(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Full sync: campaigns and their analytics.
+    Full sync: campaigns and sequences.
 
     This may take a while depending on the number of campaigns.
     """
@@ -88,10 +130,8 @@ async def get_sync_status(
     return {
         "last_sync": {
             "id": last_sync.id,
-            "type": last_sync.sync_type,
             "status": last_sync.status,
             "campaigns_synced": last_sync.campaigns_synced,
-            "leads_synced": last_sync.leads_synced,
             "error_message": last_sync.error_message,
             "started_at": last_sync.started_at.isoformat() if last_sync.started_at else None,
             "completed_at": last_sync.completed_at.isoformat() if last_sync.completed_at else None,

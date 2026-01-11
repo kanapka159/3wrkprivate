@@ -5,12 +5,13 @@ Provides AI-powered suggestions for improving campaign performance.
 """
 
 import logging
+from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import Campaign, CampaignAnalytics
+from ..db.models import Campaign, CampaignDailyStats, Suggestion
 
 logger = logging.getLogger(__name__)
 
@@ -27,13 +28,37 @@ class SuggestionEngine:
     }
 
     def __init__(self, db: AsyncSession):
-        """
-        Initialize suggestion engine.
-
-        Args:
-            db: Database session
-        """
         self.db = db
+
+    async def _get_campaign_rates(self, campaign_id: int) -> Optional[dict]:
+        """Get aggregated rates for a campaign."""
+        stats = await self.db.execute(
+            select(
+                func.sum(CampaignDailyStats.unique_sent),
+                func.sum(CampaignDailyStats.open_count),
+                func.sum(CampaignDailyStats.click_count),
+                func.sum(CampaignDailyStats.unique_replied),
+                func.sum(CampaignDailyStats.bounce_count),
+            ).where(CampaignDailyStats.campaign_id == campaign_id)
+        )
+        row = stats.one()
+
+        sent = row[0] or 0
+        if sent == 0:
+            return None
+
+        opens = row[1] or 0
+        clicks = row[2] or 0
+        replies = row[3] or 0
+        bounces = row[4] or 0
+
+        return {
+            "sent_count": sent,
+            "open_rate": round((opens / sent * 100), 2),
+            "click_rate": round((clicks / sent * 100), 2),
+            "reply_rate": round((replies / sent * 100), 2),
+            "bounce_rate": round((bounces / sent * 100), 2),
+        }
 
     async def get_campaign_suggestions(self, campaign_id: int) -> dict:
         """
@@ -45,7 +70,6 @@ class SuggestionEngine:
         Returns:
             Dictionary with suggestions and analysis
         """
-        # Get campaign and analytics
         result = await self.db.execute(
             select(Campaign).where(Campaign.id == campaign_id)
         )
@@ -54,22 +78,16 @@ class SuggestionEngine:
         if not campaign:
             raise ValueError(f"Campaign {campaign_id} not found")
 
-        analytics_result = await self.db.execute(
-            select(CampaignAnalytics).where(
-                CampaignAnalytics.campaign_id == campaign_id,
-                CampaignAnalytics.date.is_(None),
-            )
-        )
-        analytics = analytics_result.scalar_one_or_none()
+        rates = await self._get_campaign_rates(campaign_id)
 
-        if not analytics or analytics.sent_count == 0:
+        if not rates:
             return {
                 "campaign_id": campaign_id,
                 "campaign_name": campaign.name,
                 "suggestions": [{
                     "type": "info",
                     "category": "general",
-                    "message": "Not enough data to generate suggestions. Send more emails first.",
+                    "message": "Not enough data to generate suggestions. Sync daily stats first.",
                 }],
                 "health_score": None,
             }
@@ -78,28 +96,27 @@ class SuggestionEngine:
         health_score = 100
 
         # Analyze open rate
-        open_suggestions, open_penalty = self._analyze_open_rate(analytics.open_rate)
+        open_suggestions, open_penalty = self._analyze_open_rate(rates["open_rate"])
         suggestions.extend(open_suggestions)
         health_score -= open_penalty
 
         # Analyze click rate
         click_suggestions, click_penalty = self._analyze_click_rate(
-            analytics.click_rate, analytics.open_rate
+            rates["click_rate"], rates["open_rate"]
         )
         suggestions.extend(click_suggestions)
         health_score -= click_penalty
 
         # Analyze reply rate
-        reply_suggestions, reply_penalty = self._analyze_reply_rate(analytics.reply_rate)
+        reply_suggestions, reply_penalty = self._analyze_reply_rate(rates["reply_rate"])
         suggestions.extend(reply_suggestions)
         health_score -= reply_penalty
 
         # Analyze bounce rate
-        bounce_suggestions, bounce_penalty = self._analyze_bounce_rate(analytics.bounce_rate)
+        bounce_suggestions, bounce_penalty = self._analyze_bounce_rate(rates["bounce_rate"])
         suggestions.extend(bounce_suggestions)
         health_score -= bounce_penalty
 
-        # Determine overall health
         health_score = max(0, health_score)
 
         return {
@@ -109,29 +126,23 @@ class SuggestionEngine:
             "health_status": self._get_health_status(health_score),
             "metrics": {
                 "open_rate": {
-                    "value": analytics.open_rate,
+                    "value": rates["open_rate"],
                     "benchmark": self.BENCHMARKS["open_rate"],
-                    "status": self._get_metric_status(
-                        analytics.open_rate, self.BENCHMARKS["open_rate"]
-                    ),
+                    "status": self._get_metric_status(rates["open_rate"], self.BENCHMARKS["open_rate"]),
                 },
                 "click_rate": {
-                    "value": analytics.click_rate,
+                    "value": rates["click_rate"],
                     "benchmark": self.BENCHMARKS["click_rate"],
-                    "status": self._get_metric_status(
-                        analytics.click_rate, self.BENCHMARKS["click_rate"]
-                    ),
+                    "status": self._get_metric_status(rates["click_rate"], self.BENCHMARKS["click_rate"]),
                 },
                 "reply_rate": {
-                    "value": analytics.reply_rate,
+                    "value": rates["reply_rate"],
                     "benchmark": self.BENCHMARKS["reply_rate"],
-                    "status": self._get_metric_status(
-                        analytics.reply_rate, self.BENCHMARKS["reply_rate"]
-                    ),
+                    "status": self._get_metric_status(rates["reply_rate"], self.BENCHMARKS["reply_rate"]),
                 },
                 "bounce_rate": {
-                    "value": analytics.bounce_rate,
-                    "status": self._get_bounce_status(analytics.bounce_rate),
+                    "value": rates["bounce_rate"],
+                    "status": self._get_bounce_status(rates["bounce_rate"]),
                 },
             },
             "suggestions": suggestions,
@@ -193,7 +204,6 @@ class SuggestionEngine:
         suggestions = []
         penalty = 0
 
-        # Only analyze if people are opening
         if open_rate < 10:
             return suggestions, penalty
 
@@ -339,12 +349,23 @@ class SuggestionEngine:
         Returns:
             Dictionary with global suggestions
         """
-        # Get all campaigns with analytics
+        # Get all campaigns with aggregated stats
+        subquery = (
+            select(
+                CampaignDailyStats.campaign_id,
+                func.sum(CampaignDailyStats.unique_sent).label("total_sent"),
+                func.sum(CampaignDailyStats.open_count).label("total_opens"),
+                func.sum(CampaignDailyStats.unique_replied).label("total_replies"),
+                func.sum(CampaignDailyStats.bounce_count).label("total_bounces"),
+            )
+            .group_by(CampaignDailyStats.campaign_id)
+            .subquery()
+        )
+
         result = await self.db.execute(
-            select(Campaign, CampaignAnalytics)
-            .join(CampaignAnalytics, Campaign.id == CampaignAnalytics.campaign_id)
-            .where(CampaignAnalytics.date.is_(None))
-            .where(CampaignAnalytics.sent_count > 0)
+            select(Campaign, subquery)
+            .join(subquery, Campaign.id == subquery.c.campaign_id)
+            .where(subquery.c.total_sent > 0)
         )
         rows = result.all()
 
@@ -357,17 +378,38 @@ class SuggestionEngine:
                 }],
             }
 
-        # Calculate averages
-        total_campaigns = len(rows)
-        avg_open_rate = sum(a.open_rate for _, a in rows) / total_campaigns
-        avg_reply_rate = sum(a.reply_rate for _, a in rows) / total_campaigns
-        avg_bounce_rate = sum(a.bounce_rate for _, a in rows) / total_campaigns
+        # Calculate metrics for each campaign
+        campaigns_data = []
+        for row in rows:
+            campaign = row[0]
+            sent = row.total_sent or 0
+            opens = row.total_opens or 0
+            replies = row.total_replies or 0
+            bounces = row.total_bounces or 0
 
-        # Count campaigns needing attention
-        critical_count = sum(1 for _, a in rows if a.bounce_rate > 5 or a.reply_rate < 1)
+            if sent > 0:
+                campaigns_data.append({
+                    "campaign": campaign,
+                    "open_rate": (opens / sent * 100),
+                    "reply_rate": (replies / sent * 100),
+                    "bounce_rate": (bounces / sent * 100),
+                })
+
+        total_campaigns = len(campaigns_data)
+        if total_campaigns == 0:
+            return {
+                "total_campaigns": 0,
+                "suggestions": [{"type": "info", "message": "No campaign data available."}],
+            }
+
+        avg_open_rate = sum(c["open_rate"] for c in campaigns_data) / total_campaigns
+        avg_reply_rate = sum(c["reply_rate"] for c in campaigns_data) / total_campaigns
+        avg_bounce_rate = sum(c["bounce_rate"] for c in campaigns_data) / total_campaigns
+
+        critical_count = sum(1 for c in campaigns_data if c["bounce_rate"] > 5 or c["reply_rate"] < 1)
         warning_count = sum(
-            1 for _, a in rows
-            if (a.open_rate < 25 or a.reply_rate < 3) and not (a.bounce_rate > 5 or a.reply_rate < 1)
+            1 for c in campaigns_data
+            if (c["open_rate"] < 25 or c["reply_rate"] < 3) and not (c["bounce_rate"] > 5 or c["reply_rate"] < 1)
         )
 
         suggestions = []
@@ -404,3 +446,32 @@ class SuggestionEngine:
             "campaigns_healthy": total_campaigns - critical_count - warning_count,
             "suggestions": suggestions,
         }
+
+    async def save_suggestion(
+        self,
+        campaign_id: int,
+        suggestion_text: str,
+        reason: str,
+    ) -> Suggestion:
+        """Save a suggestion to the database."""
+        suggestion = Suggestion(
+            campaign_id=campaign_id,
+            suggestion=suggestion_text,
+            reason=reason,
+        )
+        self.db.add(suggestion)
+        await self.db.flush()
+        return suggestion
+
+    async def mark_suggestion_applied(self, suggestion_id: int) -> Optional[Suggestion]:
+        """Mark a suggestion as applied."""
+        result = await self.db.execute(
+            select(Suggestion).where(Suggestion.id == suggestion_id)
+        )
+        suggestion = result.scalar_one_or_none()
+
+        if suggestion:
+            suggestion.applied = True
+            suggestion.applied_at = datetime.utcnow()
+
+        return suggestion

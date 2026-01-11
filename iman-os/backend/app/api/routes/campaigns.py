@@ -7,10 +7,10 @@ API endpoints for managing campaigns.
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...db import get_db, Campaign, CampaignAnalytics
+from ...db import get_db, Campaign, CampaignDailyStats, Sequence
 from ...services import SmartleadClient
 from ...services.smartlead import SmartleadAPIError
 
@@ -35,7 +35,7 @@ async def list_campaigns(
     if client_id:
         query = query.where(Campaign.client_id == client_id)
 
-    query = query.order_by(Campaign.updated_at.desc()).offset(offset).limit(limit)
+    query = query.order_by(Campaign.created_at.desc()).offset(offset).limit(limit)
 
     result = await db.execute(query)
     campaigns = result.scalars().all()
@@ -65,7 +65,7 @@ async def get_campaign(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Get a single campaign by ID.
+    Get a single campaign by ID with aggregated stats.
     """
     result = await db.execute(
         select(Campaign).where(Campaign.id == campaign_id)
@@ -75,14 +75,23 @@ async def get_campaign(
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
 
-    # Get analytics
-    analytics_result = await db.execute(
-        select(CampaignAnalytics).where(
-            CampaignAnalytics.campaign_id == campaign_id,
-            CampaignAnalytics.date.is_(None),
-        )
+    # Get aggregated stats
+    stats = await db.execute(
+        select(
+            func.sum(CampaignDailyStats.unique_sent),
+            func.sum(CampaignDailyStats.open_count),
+            func.sum(CampaignDailyStats.click_count),
+            func.sum(CampaignDailyStats.unique_replied),
+            func.sum(CampaignDailyStats.bounce_count),
+        ).where(CampaignDailyStats.campaign_id == campaign_id)
     )
-    analytics = analytics_result.scalar_one_or_none()
+    row = stats.one()
+
+    sent = row[0] or 0
+    opens = row[1] or 0
+    clicks = row[2] or 0
+    replies = row[3] or 0
+    bounces = row[4] or 0
 
     return {
         "campaign": {
@@ -92,23 +101,20 @@ async def get_campaign(
             "status": campaign.status,
             "client_id": campaign.client_id,
             "client_name": campaign.client_name,
-            "timezone": campaign.timezone,
-            "track_settings": campaign.track_settings,
             "last_synced_at": campaign.last_synced_at.isoformat() if campaign.last_synced_at else None,
             "created_at": campaign.created_at.isoformat() if campaign.created_at else None,
-            "updated_at": campaign.updated_at.isoformat() if campaign.updated_at else None,
         },
         "analytics": {
-            "sent_count": analytics.sent_count if analytics else 0,
-            "open_count": analytics.open_count if analytics else 0,
-            "click_count": analytics.click_count if analytics else 0,
-            "reply_count": analytics.reply_count if analytics else 0,
-            "bounce_count": analytics.bounce_count if analytics else 0,
-            "open_rate": analytics.open_rate if analytics else 0,
-            "click_rate": analytics.click_rate if analytics else 0,
-            "reply_rate": analytics.reply_rate if analytics else 0,
-            "bounce_rate": analytics.bounce_rate if analytics else 0,
-        } if analytics else None,
+            "sent_count": sent,
+            "open_count": opens,
+            "click_count": clicks,
+            "reply_count": replies,
+            "bounce_count": bounces,
+            "open_rate": round((opens / sent * 100), 2) if sent > 0 else 0,
+            "click_rate": round((clicks / sent * 100), 2) if sent > 0 else 0,
+            "reply_rate": round((replies / sent * 100), 2) if sent > 0 else 0,
+            "bounce_rate": round((bounces / sent * 100), 2) if sent > 0 else 0,
+        },
     }
 
 
@@ -121,7 +127,6 @@ async def update_campaign_status(
     """
     Update campaign status via Smartlead API.
     """
-    # Get campaign
     result = await db.execute(
         select(Campaign).where(Campaign.id == campaign_id)
     )
@@ -139,11 +144,8 @@ async def update_campaign_status(
 
     try:
         async with SmartleadClient() as client:
-            result = await client.update_campaign_status(
-                campaign.smartlead_id, status.upper()
-            )
+            await client.update_campaign_status(campaign.smartlead_id, status.upper())
 
-        # Update local status
         campaign.status = status.upper()
         await db.commit()
 
@@ -163,9 +165,8 @@ async def get_campaign_sequences(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    Get email sequences for a campaign from Smartlead API.
+    Get email sequences for a campaign from local database.
     """
-    # Get campaign
     result = await db.execute(
         select(Campaign).where(Campaign.id == campaign_id)
     )
@@ -174,11 +175,79 @@ async def get_campaign_sequences(
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
 
-    try:
-        async with SmartleadClient() as client:
-            sequences = await client.get_campaign_sequences(campaign.smartlead_id)
+    # Get sequences from local DB
+    seq_result = await db.execute(
+        select(Sequence)
+        .where(Sequence.campaign_id == campaign_id)
+        .order_by(Sequence.seq_number)
+    )
+    sequences = seq_result.scalars().all()
 
-        return {"campaign_id": campaign_id, "sequences": sequences}
+    return {
+        "campaign_id": campaign_id,
+        "sequences": [
+            {
+                "id": s.id,
+                "smartlead_id": s.smartlead_id,
+                "seq_number": s.seq_number,
+                "variant_label": s.variant_label,
+                "subject": s.subject,
+                "sent_count": s.sent_count,
+                "reply_count": s.reply_count,
+            }
+            for s in sequences
+        ],
+    }
 
-    except SmartleadAPIError as e:
-        raise HTTPException(status_code=e.status_code or 500, detail=e.message)
+
+@router.get("/{campaign_id}/daily-stats")
+async def get_campaign_daily_stats(
+    campaign_id: int,
+    start_date: Optional[str] = Query(None, description="Start date (YYYY-MM-DD)"),
+    end_date: Optional[str] = Query(None, description="End date (YYYY-MM-DD)"),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Get daily statistics for a campaign.
+    """
+    from datetime import datetime
+
+    result = await db.execute(
+        select(Campaign).where(Campaign.id == campaign_id)
+    )
+    campaign = result.scalar_one_or_none()
+
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+
+    query = select(CampaignDailyStats).where(
+        CampaignDailyStats.campaign_id == campaign_id
+    )
+
+    if start_date:
+        query = query.where(CampaignDailyStats.date >= datetime.strptime(start_date, "%Y-%m-%d"))
+    if end_date:
+        query = query.where(CampaignDailyStats.date <= datetime.strptime(end_date, "%Y-%m-%d"))
+
+    query = query.order_by(CampaignDailyStats.date.desc())
+
+    stats_result = await db.execute(query)
+    daily_stats = stats_result.scalars().all()
+
+    return {
+        "campaign_id": campaign_id,
+        "daily_stats": [
+            {
+                "date": ds.date.strftime("%Y-%m-%d") if ds.date else None,
+                "sent_count": ds.sent_count,
+                "unique_sent": ds.unique_sent,
+                "reply_count": ds.reply_count,
+                "unique_replied": ds.unique_replied,
+                "positive_replies": ds.positive_replies,
+                "open_count": ds.open_count,
+                "click_count": ds.click_count,
+                "bounce_count": ds.bounce_count,
+            }
+            for ds in daily_stats
+        ],
+    }

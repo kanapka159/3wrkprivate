@@ -31,8 +31,9 @@ async def lifespan(app: FastAPI):
     """Application lifespan handler."""
     # Startup
     logger.info("Starting IMAN OS Backend...")
+    logger.info("Creating database tables...")
     await init_db()
-    logger.info("Database initialized")
+    logger.info("Database initialized - all tables created")
     yield
     # Shutdown
     logger.info("Shutting down IMAN OS Backend...")
