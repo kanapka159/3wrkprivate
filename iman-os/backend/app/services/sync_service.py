@@ -379,27 +379,38 @@ class SyncService:
         )
         daily_stats = result.scalar_one_or_none()
 
+        # Extract values with fallbacks - Smartlead API may not provide "unique_" prefixed fields
+        # Fall back to regular counts if unique variants don't exist
+        sent_count = stats_data.get("sent_count", 0) or 0
+        reply_count = stats_data.get("reply_count", 0) or 0
+        unique_sent = stats_data.get("unique_sent_count", 0) or stats_data.get("unique_sent", 0) or sent_count
+        unique_replied = stats_data.get("unique_reply_count", 0) or stats_data.get("unique_replied", 0) or reply_count
+        positive_replies = stats_data.get("positive_reply_count", 0) or stats_data.get("positive_replies", 0) or 0
+        bounce_count = stats_data.get("bounce_count", 0) or 0
+        open_count = stats_data.get("open_count", 0) or 0
+        click_count = stats_data.get("click_count", 0) or 0
+
         if daily_stats:
-            daily_stats.sent_count = stats_data.get("sent_count", 0) or 0
-            daily_stats.reply_count = stats_data.get("reply_count", 0) or 0
-            daily_stats.unique_sent = stats_data.get("unique_sent_count", 0) or stats_data.get("unique_sent", 0) or 0
-            daily_stats.unique_replied = stats_data.get("unique_reply_count", 0) or stats_data.get("unique_replied", 0) or 0
-            daily_stats.positive_replies = stats_data.get("positive_reply_count", 0) or stats_data.get("positive_replies", 0) or 0
-            daily_stats.bounce_count = stats_data.get("bounce_count", 0) or 0
-            daily_stats.open_count = stats_data.get("open_count", 0) or 0
-            daily_stats.click_count = stats_data.get("click_count", 0) or 0
+            daily_stats.sent_count = sent_count
+            daily_stats.reply_count = reply_count
+            daily_stats.unique_sent = unique_sent
+            daily_stats.unique_replied = unique_replied
+            daily_stats.positive_replies = positive_replies
+            daily_stats.bounce_count = bounce_count
+            daily_stats.open_count = open_count
+            daily_stats.click_count = click_count
         else:
             daily_stats = CampaignDailyStats(
                 campaign_id=campaign_id,
                 date=date,
-                sent_count=stats_data.get("sent_count", 0) or 0,
-                reply_count=stats_data.get("reply_count", 0) or 0,
-                unique_sent=stats_data.get("unique_sent_count", 0) or stats_data.get("unique_sent", 0) or 0,
-                unique_replied=stats_data.get("unique_reply_count", 0) or stats_data.get("unique_replied", 0) or 0,
-                positive_replies=stats_data.get("positive_reply_count", 0) or stats_data.get("positive_replies", 0) or 0,
-                bounce_count=stats_data.get("bounce_count", 0) or 0,
-                open_count=stats_data.get("open_count", 0) or 0,
-                click_count=stats_data.get("click_count", 0) or 0,
+                sent_count=sent_count,
+                reply_count=reply_count,
+                unique_sent=unique_sent,
+                unique_replied=unique_replied,
+                positive_replies=positive_replies,
+                bounce_count=bounce_count,
+                open_count=open_count,
+                click_count=click_count,
             )
             self.db.add(daily_stats)
 
