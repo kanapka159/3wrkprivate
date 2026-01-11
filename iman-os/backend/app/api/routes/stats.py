@@ -8,10 +8,10 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func
+from sqlalchemy import select, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...db import get_db, Campaign, CampaignDailyStats
+from ...db import get_db, Campaign, CampaignDailyStats, LeadReply
 from ...services import StatsCalculator
 
 router = APIRouter()
@@ -32,7 +32,9 @@ async def get_stats_overview(
     - Positive reply rate
     - Campaigns needing action count
     """
-    cutoff_date = datetime.utcnow() - timedelta(days=days)
+    # Fix: Set cutoff to start of day (midnight) to include full days
+    # Daily stats are stored at midnight, so comparing with current time would exclude partial days
+    cutoff_date = (datetime.utcnow() - timedelta(days=days)).replace(hour=0, minute=0, second=0, microsecond=0)
 
     # Get campaign counts by status
     status_counts = await db.execute(
@@ -46,45 +48,101 @@ async def get_stats_overview(
     paused_campaigns = campaigns_by_status.get("PAUSED", 0)
     stopped_campaigns = campaigns_by_status.get("STOPPED", 0)
 
-    # Get aggregated stats for the period
+    # Get aggregated stats for the period (sent, opens, bounces from daily stats)
+    # Use COALESCE logic: prefer unique_sent, fall back to sent_count
     period_stats = await db.execute(
         select(
             func.sum(CampaignDailyStats.unique_sent),
-            func.sum(CampaignDailyStats.unique_replied),
-            func.sum(CampaignDailyStats.positive_replies),
+            func.sum(CampaignDailyStats.sent_count),
             func.sum(CampaignDailyStats.open_count),
             func.sum(CampaignDailyStats.bounce_count),
         ).where(CampaignDailyStats.date >= cutoff_date)
     )
     row = period_stats.one()
 
-    sent = row[0] or 0
-    replied = row[1] or 0
-    positive = row[2] or 0
-    opens = row[3] or 0
-    bounces = row[4] or 0
+    unique_sent = row[0] or 0
+    total_sent = row[1] or 0
+    sent = unique_sent if unique_sent > 0 else total_sent
+    opens = row[2] or 0
+    bounces = row[3] or 0
 
-    reply_rate = round((replied / sent * 100), 2) if sent > 0 else 0
-    positive_rate = round((positive / replied * 100), 2) if replied > 0 else 0
+    # Get reply counts from LeadReply table (more accurate than daily stats)
+    reply_stats = await db.execute(
+        select(
+            func.count(LeadReply.id),
+            func.sum(case((LeadReply.is_positive == True, 1), else_=0)),
+        )
+    )
+    reply_row = reply_stats.one()
+    replied = reply_row[0] or 0
+    positive = reply_row[1] or 0
+
+    # Get per-campaign stats: sent from daily stats, replies from LeadReply
+    # First get sent counts per campaign (prefer unique_sent, fall back to sent_count)
+    sent_per_campaign = await db.execute(
+        select(
+            CampaignDailyStats.campaign_id,
+            func.sum(CampaignDailyStats.unique_sent).label("campaign_unique_sent"),
+            func.sum(CampaignDailyStats.sent_count).label("campaign_sent"),
+        )
+        .where(CampaignDailyStats.date >= cutoff_date)
+        .group_by(CampaignDailyStats.campaign_id)
+    )
+    sent_by_campaign = {}
+    for r in sent_per_campaign:
+        unique = r.campaign_unique_sent or 0
+        total = r.campaign_sent or 0
+        sent_by_campaign[r.campaign_id] = unique if unique > 0 else total
+
+    # Get reply counts per campaign from LeadReply
+    replies_per_campaign = await db.execute(
+        select(
+            LeadReply.campaign_id,
+            func.count(LeadReply.id).label("campaign_replied"),
+            func.sum(case((LeadReply.is_positive == True, 1), else_=0)).label("campaign_positive"),
+        )
+        .group_by(LeadReply.campaign_id)
+    )
+
+    # Calculate average reply rate across campaigns (excluding 0-reply campaigns)
+    reply_rates = []
+    positive_rates = []
+    for r in replies_per_campaign:
+        camp_sent = sent_by_campaign.get(r.campaign_id, 0)
+        camp_replied = r.campaign_replied or 0
+        camp_positive = r.campaign_positive or 0
+
+        if camp_sent > 0 and camp_replied > 0:  # Only include campaigns with replies
+            reply_rates.append((camp_replied / camp_sent) * 100)
+            if camp_replied > 0:
+                positive_rates.append((camp_positive / camp_replied) * 100)
+
+    avg_reply_rate = round(sum(reply_rates) / len(reply_rates), 2) if reply_rates else 0
+    avg_positive_rate = round(sum(positive_rates) / len(positive_rates), 2) if positive_rates else 0
+
+    # Overall rates for reference
     open_rate = round((opens / sent * 100), 2) if sent > 0 else 0
     bounce_rate = round((bounces / sent * 100), 2) if sent > 0 else 0
 
     # Count campaigns needing action (reply rate < 1% with > 200 sends)
+    # Use sent_by_campaign and replies from LeadReply
     low_threshold = 200
-    needing_action_query = (
+
+    # Get reply counts by campaign from LeadReply
+    reply_counts_query = await db.execute(
         select(
-            CampaignDailyStats.campaign_id,
-            func.sum(CampaignDailyStats.unique_sent).label("total_sent"),
-            func.sum(CampaignDailyStats.unique_replied).label("total_replied"),
+            LeadReply.campaign_id,
+            func.count(LeadReply.id).label("reply_count"),
         )
-        .group_by(CampaignDailyStats.campaign_id)
-        .having(func.sum(CampaignDailyStats.unique_sent) >= low_threshold)
+        .group_by(LeadReply.campaign_id)
     )
-    needing_action_result = await db.execute(needing_action_query)
+    replies_by_campaign = {r.campaign_id: r.reply_count for r in reply_counts_query}
+
     needing_action_count = 0
-    for r in needing_action_result:
-        if r.total_sent > 0:
-            rr = (r.total_replied or 0) / r.total_sent * 100
+    for campaign_id, total_sent in sent_by_campaign.items():
+        if total_sent >= low_threshold:
+            total_replied = replies_by_campaign.get(campaign_id, 0)
+            rr = (total_replied / total_sent * 100) if total_sent > 0 else 0
             if rr < 1.0:  # Below MONITOR threshold
                 needing_action_count += 1
 
@@ -102,8 +160,8 @@ async def get_stats_overview(
             "positive_count": positive,
             "open_count": opens,
             "bounce_count": bounces,
-            "reply_rate": reply_rate,
-            "positive_rate": positive_rate,
+            "reply_rate": avg_reply_rate,
+            "positive_rate": avg_positive_rate,
             "open_rate": open_rate,
             "bounce_rate": bounce_rate,
         },

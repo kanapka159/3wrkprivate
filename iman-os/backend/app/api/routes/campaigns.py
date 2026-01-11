@@ -4,18 +4,45 @@ Campaign Routes
 API endpoints for managing campaigns.
 """
 
+from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func
+from sqlalchemy import select, func, case
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...db import get_db, Campaign, CampaignDailyStats, Sequence
+from ...db import get_db, Campaign, CampaignDailyStats, Sequence, LeadReply
 from ...services import SmartleadClient
 from ...services.smartlead import SmartleadAPIError
 from ...services.suggestion_engine import SuggestionEngine
 
 router = APIRouter()
+
+
+def _get_period_stats(daily_stats_by_campaign: dict, campaign_id: int, cutoff_date: datetime) -> dict:
+    """Calculate stats for a specific period."""
+    stats = daily_stats_by_campaign.get(campaign_id, [])
+    # Convert cutoff to date for comparison (handles both date and datetime)
+    cutoff = cutoff_date.date() if hasattr(cutoff_date, 'date') else cutoff_date
+
+    period_stats = []
+    for s in stats:
+        stat_date = s["date"]
+        # Handle both datetime and date objects
+        if hasattr(stat_date, 'date'):
+            stat_date = stat_date.date()
+        if stat_date >= cutoff:
+            period_stats.append(s)
+
+    sent = sum(s["sent"] for s in period_stats)
+    opens = sum(s["opens"] for s in period_stats)
+    bounces = sum(s["bounces"] for s in period_stats)
+
+    return {
+        "sent_count": sent,
+        "open_count": opens,
+        "bounce_count": bounces,
+    }
 
 
 @router.get("/")
@@ -28,64 +55,137 @@ async def list_campaigns(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    List all campaigns with stats.
-
-    Filters:
-    - status: Filter by campaign status (STARTED, PAUSED, STOPPED)
-    - client_id: Filter by client ID
-    - only_suggestions: Only return campaigns that need action
+    List all campaigns with stats including period-specific stats (7d, 14d, 28d).
     """
-    # Build subquery for aggregated stats
-    stats_subquery = (
+    # Calculate cutoff dates for periods
+    now = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    cutoff_7d = now - timedelta(days=7)
+    cutoff_14d = now - timedelta(days=14)
+    cutoff_28d = now - timedelta(days=28)
+
+    # Get all campaigns
+    campaign_query = select(Campaign)
+    if status:
+        campaign_query = campaign_query.where(Campaign.status == status.upper())
+    if client_id:
+        campaign_query = campaign_query.where(Campaign.client_id == client_id)
+    campaign_query = campaign_query.order_by(Campaign.created_at.desc())
+
+    campaigns_result = await db.execute(campaign_query)
+    campaigns = campaigns_result.scalars().all()
+
+    # Get all daily stats for last 28 days (covers all periods)
+    # Use COALESCE to prefer unique_sent but fall back to sent_count
+    daily_stats_result = await db.execute(
         select(
             CampaignDailyStats.campaign_id,
-            func.sum(CampaignDailyStats.unique_sent).label("total_sent"),
-            func.sum(CampaignDailyStats.unique_replied).label("total_replied"),
-            func.sum(CampaignDailyStats.positive_replies).label("total_positive"),
+            CampaignDailyStats.date,
+            CampaignDailyStats.unique_sent,
+            CampaignDailyStats.sent_count,
+            CampaignDailyStats.open_count,
+            CampaignDailyStats.bounce_count,
+        ).where(CampaignDailyStats.date >= cutoff_28d)
+    )
+
+    # Group daily stats by campaign
+    daily_stats_by_campaign = {}
+    for row in daily_stats_result:
+        cid = row.campaign_id
+        if cid not in daily_stats_by_campaign:
+            daily_stats_by_campaign[cid] = []
+        # Use unique_sent if available, otherwise fall back to sent_count
+        sent_value = row.unique_sent if row.unique_sent and row.unique_sent > 0 else (row.sent_count or 0)
+        daily_stats_by_campaign[cid].append({
+            "date": row.date,
+            "sent": sent_value,
+            "opens": row.open_count or 0,
+            "bounces": row.bounce_count or 0,
+        })
+
+    # Also get ALL-TIME stats as fallback (for campaigns with incomplete daily data)
+    alltime_stats_result = await db.execute(
+        select(
+            CampaignDailyStats.campaign_id,
+            func.sum(CampaignDailyStats.unique_sent).label("total_unique_sent"),
+            func.sum(CampaignDailyStats.sent_count).label("total_sent"),
             func.sum(CampaignDailyStats.open_count).label("total_opens"),
             func.sum(CampaignDailyStats.bounce_count).label("total_bounces"),
-        )
-        .group_by(CampaignDailyStats.campaign_id)
-        .subquery()
+        ).group_by(CampaignDailyStats.campaign_id)
     )
+    alltime_by_campaign = {}
+    for r in alltime_stats_result:
+        unique = r.total_unique_sent or 0
+        total = r.total_sent or 0
+        alltime_by_campaign[r.campaign_id] = {
+            "sent": unique if unique > 0 else total,
+            "opens": r.total_opens or 0,
+            "bounces": r.total_bounces or 0,
+        }
 
-    # Main query
-    query = (
-        select(Campaign, stats_subquery)
-        .outerjoin(stats_subquery, Campaign.id == stats_subquery.c.campaign_id)
+    # Get reply counts from LeadReply (total per campaign)
+    replies_result = await db.execute(
+        select(
+            LeadReply.campaign_id,
+            func.count(LeadReply.id).label("total_replied"),
+            func.sum(case((LeadReply.is_positive == True, 1), else_=0)).label("total_positive"),
+        ).group_by(LeadReply.campaign_id)
     )
-
-    if status:
-        query = query.where(Campaign.status == status.upper())
-    if client_id:
-        query = query.where(Campaign.client_id == client_id)
-
-    query = query.order_by(Campaign.created_at.desc())
-
-    result = await db.execute(query)
-    rows = result.all()
+    replies_by_campaign = {r.campaign_id: {"replied": r.total_replied or 0, "positive": r.total_positive or 0} for r in replies_result}
 
     # Process campaigns
     suggestion_engine = SuggestionEngine(db)
     campaigns_list = []
 
-    for row in rows:
-        campaign = row[0]
-        sent = row.total_sent or 0
-        replied = row.total_replied or 0
-        positive = row.total_positive or 0
-        opens = row.total_opens or 0
-        bounces = row.total_bounces or 0
+    for campaign in campaigns:
+        cid = campaign.id
 
-        reply_rate = round((replied / sent * 100), 2) if sent > 0 else 0
-        positive_rate = round((positive / replied * 100), 2) if replied > 0 else 0
-        open_rate = round((opens / sent * 100), 2) if sent > 0 else 0
-        bounce_rate = round((bounces / sent * 100), 2) if sent > 0 else 0
+        # PRIMARY: Use aggregate stats from Campaign model (synced from Smartlead aggregate API)
+        # These are the all-time totals that match what Smartlead UI shows
+        total_sent = campaign.total_sent or 0
+        total_replied = campaign.total_replied or 0
+        total_positive = campaign.total_positive or 0
+        total_opened = campaign.total_opened or 0
+        total_bounced = campaign.total_bounced or 0
 
-        # Generate suggestion
+        # FALLBACK: If aggregate stats are 0, use LeadReply table or daily stats
+        reply_data = replies_by_campaign.get(cid, {"replied": 0, "positive": 0})
+        if total_replied == 0:
+            total_replied = reply_data["replied"]
+        if total_positive == 0:
+            total_positive = reply_data["positive"]
+
+        # FALLBACK: Use daily stats sum if Campaign aggregate is 0
+        alltime = alltime_by_campaign.get(cid, {"sent": 0, "opens": 0, "bounces": 0})
+        if total_sent == 0:
+            total_sent = alltime["sent"]
+        if total_opened == 0:
+            total_opened = alltime["opens"]
+        if total_bounced == 0:
+            total_bounced = alltime["bounces"]
+
+        # Calculate period-specific stats from daily stats
+        stats_7d = _get_period_stats(daily_stats_by_campaign, cid, cutoff_7d)
+        stats_14d = _get_period_stats(daily_stats_by_campaign, cid, cutoff_14d)
+        stats_28d = _get_period_stats(daily_stats_by_campaign, cid, cutoff_28d)
+
+        # Use aggregate total_sent as fallback if period stats are 0
+        sent_7d = stats_7d["sent_count"] if stats_7d["sent_count"] > 0 else total_sent
+        sent_14d = stats_14d["sent_count"] if stats_14d["sent_count"] > 0 else total_sent
+        sent_28d = stats_28d["sent_count"] if stats_28d["sent_count"] > 0 else total_sent
+
+        # Calculate rates using aggregate totals (more accurate)
+        positive_rate = round((total_positive / total_replied * 100), 2) if total_replied > 0 else 0
+        overall_reply_rate = round((total_replied / total_sent * 100), 2) if total_sent > 0 else 0
+
+        # For period reply rates, use total replies / period sent (approximation)
+        reply_rate_7d = round((total_replied / sent_7d * 100), 2) if sent_7d > 0 else 0
+        reply_rate_14d = round((total_replied / sent_14d * 100), 2) if sent_14d > 0 else 0
+        reply_rate_28d = round((total_replied / sent_28d * 100), 2) if sent_28d > 0 else 0
+
+        # Generate suggestion based on all-time stats (most accurate)
         campaign_data = {
-            "sent_count": sent,
-            "reply_rate": reply_rate,
+            "sent_count": total_sent,
+            "reply_rate": overall_reply_rate,
             "positive_rate": positive_rate,
         }
         suggestion = suggestion_engine.generate_suggestion(campaign_data)
@@ -106,15 +206,35 @@ async def list_campaigns(
             "last_synced_at": campaign.last_synced_at.isoformat() if campaign.last_synced_at else None,
             "created_at": campaign.created_at.isoformat() if campaign.created_at else None,
             "stats": {
-                "sent_count": sent,
-                "reply_count": replied,
-                "positive_count": positive,
-                "open_count": opens,
-                "bounce_count": bounces,
-                "reply_rate": reply_rate,
+                "sent_count": total_sent,  # All-time total from Smartlead
+                "reply_count": total_replied,
+                "positive_count": total_positive,
+                "open_count": total_opened,
+                "bounce_count": total_bounced,
+                "reply_rate": overall_reply_rate,  # All-time reply rate
                 "positive_rate": positive_rate,
-                "open_rate": open_rate,
-                "bounce_rate": bounce_rate,
+                "open_rate": round((total_opened / total_sent * 100), 2) if total_sent > 0 else 0,
+                "bounce_rate": round((total_bounced / total_sent * 100), 2) if total_sent > 0 else 0,
+            },
+            "periods": {
+                "7_days": {
+                    "sent_count": sent_7d,
+                    "reply_rate": reply_rate_7d,
+                    "open_count": stats_7d["open_count"],
+                    "bounce_count": stats_7d["bounce_count"],
+                },
+                "14_days": {
+                    "sent_count": sent_14d,
+                    "reply_rate": reply_rate_14d,
+                    "open_count": stats_14d["open_count"],
+                    "bounce_count": stats_14d["bounce_count"],
+                },
+                "28_days": {
+                    "sent_count": sent_28d,
+                    "reply_rate": reply_rate_28d,
+                    "open_count": stats_28d["open_count"],
+                    "bounce_count": stats_28d["bounce_count"],
+                },
             },
             "suggestion": suggestion,
             "warnings": warnings,

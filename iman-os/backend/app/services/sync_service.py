@@ -101,7 +101,57 @@ class SyncService:
                         campaign = await self._upsert_campaign(campaign_data)
                         await asyncio.sleep(API_DELAY)
 
-                        # 3b: Get analytics by date (last 28 days)
+                        # 3b: Get AGGREGATE analytics (all-time totals) - this is what Smartlead UI shows
+                        try:
+                            aggregate_analytics = await client.get_campaign_analytics(smartlead_id)
+                            await asyncio.sleep(API_DELAY)
+
+                            # Log the response for debugging
+                            if not hasattr(self, '_logged_aggregate_keys'):
+                                self._logged_aggregate_keys = True
+                                logger.info(f"Smartlead aggregate analytics keys: {list(aggregate_analytics.keys()) if isinstance(aggregate_analytics, dict) else type(aggregate_analytics)}")
+                                logger.info(f"Smartlead aggregate analytics sample: {aggregate_analytics}")
+
+                            # Update Campaign with aggregate stats (try multiple field name patterns)
+                            if isinstance(aggregate_analytics, dict):
+                                campaign.total_sent = (
+                                    aggregate_analytics.get("sent_count", 0) or
+                                    aggregate_analytics.get("total_sent_count", 0) or
+                                    aggregate_analytics.get("emails_sent_count", 0) or
+                                    aggregate_analytics.get("sent", 0) or 0
+                                )
+                                campaign.total_replied = (
+                                    aggregate_analytics.get("reply_count", 0) or
+                                    aggregate_analytics.get("total_reply_count", 0) or
+                                    aggregate_analytics.get("replied", 0) or
+                                    aggregate_analytics.get("replies", 0) or 0
+                                )
+                                campaign.total_positive = (
+                                    aggregate_analytics.get("positive_reply_count", 0) or
+                                    aggregate_analytics.get("positive_replies", 0) or
+                                    aggregate_analytics.get("positive", 0) or 0
+                                )
+                                campaign.total_opened = (
+                                    aggregate_analytics.get("open_count", 0) or
+                                    aggregate_analytics.get("opened", 0) or
+                                    aggregate_analytics.get("opens", 0) or 0
+                                )
+                                campaign.total_bounced = (
+                                    aggregate_analytics.get("bounce_count", 0) or
+                                    aggregate_analytics.get("bounced", 0) or
+                                    aggregate_analytics.get("bounces", 0) or 0
+                                )
+                                campaign.total_clicked = (
+                                    aggregate_analytics.get("click_count", 0) or
+                                    aggregate_analytics.get("clicked", 0) or
+                                    aggregate_analytics.get("clicks", 0) or 0
+                                )
+                                logger.info(f"Campaign {smartlead_id} aggregate: sent={campaign.total_sent}, replied={campaign.total_replied}, positive={campaign.total_positive}")
+
+                        except SmartleadAPIError as e:
+                            logger.warning(f"Failed to get aggregate analytics for campaign {smartlead_id}: {e.message}")
+
+                        # 3c: Get analytics by date (last 28 days) for period breakdowns
                         end_date = datetime.utcnow().strftime("%Y-%m-%d")
                         start_date = (datetime.utcnow() - timedelta(days=28)).strftime("%Y-%m-%d")
 
@@ -116,14 +166,14 @@ class SyncService:
                                 await self._upsert_daily_stats(campaign.id, day_data)
 
                         except SmartleadAPIError as e:
-                            logger.warning(f"Failed to get analytics for campaign {smartlead_id}: {e.message}")
+                            logger.warning(f"Failed to get daily analytics for campaign {smartlead_id}: {e.message}")
 
-                        # 3c: Paginate ALL statistics
+                        # 3d: Paginate ALL statistics
                         try:
                             all_stats = await self._paginate_statistics(client, smartlead_id)
                             await asyncio.sleep(API_DELAY)
 
-                            # 3d: Dedupe replies and count
+                            # Dedupe replies and count
                             replies_count, positive_count = await self._dedupe_replies(
                                 campaign.id, all_stats
                             )
@@ -135,7 +185,7 @@ class SyncService:
                         except SmartleadAPIError as e:
                             logger.warning(f"Failed to get statistics for campaign {smartlead_id}: {e.message}")
 
-                        # 3e: Get sequences
+                        # 3e: Get sequences (email variants)
                         try:
                             sequences_data = await client.get_campaign_sequences(smartlead_id)
                             await asyncio.sleep(API_DELAY)
@@ -371,6 +421,12 @@ class SyncService:
         except ValueError:
             return None
 
+        # Log the raw API response keys for debugging (only once per sync)
+        if not hasattr(self, '_logged_stats_keys'):
+            self._logged_stats_keys = True
+            logger.info(f"Smartlead analytics-by-date response keys: {list(stats_data.keys())}")
+            logger.info(f"Smartlead analytics-by-date sample data: {stats_data}")
+
         result = await self.db.execute(
             select(CampaignDailyStats).where(
                 CampaignDailyStats.campaign_id == campaign_id,
@@ -379,27 +435,70 @@ class SyncService:
         )
         daily_stats = result.scalar_one_or_none()
 
+        # Extract values with fallbacks - Smartlead API may use various field names
+        # Try multiple possible field names for each metric
+        sent_count = (
+            stats_data.get("sent_count", 0) or
+            stats_data.get("emails_sent", 0) or
+            stats_data.get("total_sent", 0) or
+            stats_data.get("sent", 0) or 0
+        )
+        reply_count = (
+            stats_data.get("reply_count", 0) or
+            stats_data.get("replies", 0) or
+            stats_data.get("total_replies", 0) or 0
+        )
+        unique_sent = (
+            stats_data.get("unique_sent_count", 0) or
+            stats_data.get("unique_sent", 0) or
+            sent_count
+        )
+        unique_replied = (
+            stats_data.get("unique_reply_count", 0) or
+            stats_data.get("unique_replied", 0) or
+            reply_count
+        )
+        positive_replies = (
+            stats_data.get("positive_reply_count", 0) or
+            stats_data.get("positive_replies", 0) or 0
+        )
+        bounce_count = (
+            stats_data.get("bounce_count", 0) or
+            stats_data.get("bounced", 0) or
+            stats_data.get("bounces", 0) or 0
+        )
+        open_count = (
+            stats_data.get("open_count", 0) or
+            stats_data.get("opened", 0) or
+            stats_data.get("opens", 0) or 0
+        )
+        click_count = (
+            stats_data.get("click_count", 0) or
+            stats_data.get("clicked", 0) or
+            stats_data.get("clicks", 0) or 0
+        )
+
         if daily_stats:
-            daily_stats.sent_count = stats_data.get("sent_count", 0) or 0
-            daily_stats.reply_count = stats_data.get("reply_count", 0) or 0
-            daily_stats.unique_sent = stats_data.get("unique_sent_count", 0) or stats_data.get("unique_sent", 0) or 0
-            daily_stats.unique_replied = stats_data.get("unique_reply_count", 0) or stats_data.get("unique_replied", 0) or 0
-            daily_stats.positive_replies = stats_data.get("positive_reply_count", 0) or stats_data.get("positive_replies", 0) or 0
-            daily_stats.bounce_count = stats_data.get("bounce_count", 0) or 0
-            daily_stats.open_count = stats_data.get("open_count", 0) or 0
-            daily_stats.click_count = stats_data.get("click_count", 0) or 0
+            daily_stats.sent_count = sent_count
+            daily_stats.reply_count = reply_count
+            daily_stats.unique_sent = unique_sent
+            daily_stats.unique_replied = unique_replied
+            daily_stats.positive_replies = positive_replies
+            daily_stats.bounce_count = bounce_count
+            daily_stats.open_count = open_count
+            daily_stats.click_count = click_count
         else:
             daily_stats = CampaignDailyStats(
                 campaign_id=campaign_id,
                 date=date,
-                sent_count=stats_data.get("sent_count", 0) or 0,
-                reply_count=stats_data.get("reply_count", 0) or 0,
-                unique_sent=stats_data.get("unique_sent_count", 0) or stats_data.get("unique_sent", 0) or 0,
-                unique_replied=stats_data.get("unique_reply_count", 0) or stats_data.get("unique_replied", 0) or 0,
-                positive_replies=stats_data.get("positive_reply_count", 0) or stats_data.get("positive_replies", 0) or 0,
-                bounce_count=stats_data.get("bounce_count", 0) or 0,
-                open_count=stats_data.get("open_count", 0) or 0,
-                click_count=stats_data.get("click_count", 0) or 0,
+                sent_count=sent_count,
+                reply_count=reply_count,
+                unique_sent=unique_sent,
+                unique_replied=unique_replied,
+                positive_replies=positive_replies,
+                bounce_count=bounce_count,
+                open_count=open_count,
+                click_count=click_count,
             )
             self.db.add(daily_stats)
 

@@ -63,7 +63,9 @@ def get_period_stats(stats_list: list[dict], days: int) -> dict:
         Aggregated stats with sums and rates
     """
     # Filter to requested period
-    cutoff_date = datetime.utcnow() - timedelta(days=days)
+    # Fix: Set cutoff to start of day (midnight) to include full days
+    # Daily stats dates are at midnight, comparing with current time would exclude partial days
+    cutoff_date = (datetime.utcnow() - timedelta(days=days)).replace(hour=0, minute=0, second=0, microsecond=0)
     period_stats = [
         s for s in stats_list
         if s.get("date") and datetime.strptime(s["date"], "%Y-%m-%d") >= cutoff_date
