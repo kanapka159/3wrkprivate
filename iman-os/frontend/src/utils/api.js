@@ -1,5 +1,5 @@
-// Use environment variable for API URL in production, relative path in development
-const BASE_URL = import.meta.env.VITE_API_URL || '/api';
+// Backend API URL - hardcoded for Railway deployment
+const BASE_URL = import.meta.env.VITE_API_URL || 'https://3wrkprivate-production.up.railway.app/api';
 
 async function request(endpoint, options = {}) {
   const url = `${BASE_URL}${endpoint}`;
