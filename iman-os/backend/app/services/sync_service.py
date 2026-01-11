@@ -371,6 +371,12 @@ class SyncService:
         except ValueError:
             return None
 
+        # Log the raw API response keys for debugging (only once per sync)
+        if not hasattr(self, '_logged_stats_keys'):
+            self._logged_stats_keys = True
+            logger.info(f"Smartlead analytics-by-date response keys: {list(stats_data.keys())}")
+            logger.info(f"Smartlead analytics-by-date sample data: {stats_data}")
+
         result = await self.db.execute(
             select(CampaignDailyStats).where(
                 CampaignDailyStats.campaign_id == campaign_id,
