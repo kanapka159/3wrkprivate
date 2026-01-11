@@ -109,7 +109,28 @@ class SyncService:
                         campaign = await self._upsert_campaign(campaign_data)
                         await asyncio.sleep(API_DELAY)
 
-                        # 3b: Get analytics by date (last 28 days)
+                        # 3b: Get aggregate analytics first (more reliable)
+                        try:
+                            aggregate_analytics = await client.get_campaign_analytics(smartlead_id)
+                            await asyncio.sleep(API_DELAY)
+
+                            # Log the response to understand the format
+                            logger.info(f"Aggregate analytics for campaign {smartlead_id}: {aggregate_analytics}")
+
+                            # Handle response format (could be dict with data or direct dict)
+                            if isinstance(aggregate_analytics, dict):
+                                analytics_data = aggregate_analytics.get("data", aggregate_analytics)
+                                if isinstance(analytics_data, dict):
+                                    # Store aggregate stats as today's entry
+                                    today = datetime.utcnow().strftime("%Y-%m-%d")
+                                    aggregate_with_date = {**analytics_data, "date": today}
+                                    await self._upsert_daily_stats(campaign.id, aggregate_with_date)
+                                    logger.info(f"Stored aggregate analytics for campaign {smartlead_id}")
+
+                        except SmartleadAPIError as e:
+                            logger.warning(f"Failed to get aggregate analytics for campaign {smartlead_id}: {e.message}")
+
+                        # 3b-2: Also try analytics by date for historical data
                         end_date = datetime.utcnow().strftime("%Y-%m-%d")
                         start_date = (datetime.utcnow() - timedelta(days=28)).strftime("%Y-%m-%d")
 
@@ -122,16 +143,10 @@ class SyncService:
                             # Handle different response formats
                             if isinstance(analytics_response, dict):
                                 daily_analytics = analytics_response.get("data", [])
-                                # Log sample data to debug field names
-                                if daily_analytics:
-                                    logger.info(f"Analytics sample for campaign {smartlead_id}: {daily_analytics[0] if daily_analytics else 'empty'}")
                             elif isinstance(analytics_response, list):
                                 daily_analytics = analytics_response
-                                if daily_analytics:
-                                    logger.info(f"Analytics sample for campaign {smartlead_id}: {daily_analytics[0] if daily_analytics else 'empty'}")
                             else:
                                 daily_analytics = []
-                                logger.warning(f"Unexpected analytics response type for campaign {smartlead_id}: {type(analytics_response)}")
 
                             logger.info(f"Got {len(daily_analytics)} days of analytics for campaign {smartlead_id}")
 
@@ -141,7 +156,7 @@ class SyncService:
                                     await self._upsert_daily_stats(campaign.id, day_data)
 
                         except SmartleadAPIError as e:
-                            logger.warning(f"Failed to get analytics for campaign {smartlead_id}: {e.message}")
+                            logger.warning(f"Failed to get daily analytics for campaign {smartlead_id}: {e.message}")
 
                         # 3c: Paginate ALL statistics
                         try:
