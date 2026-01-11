@@ -6,6 +6,7 @@ Async SQLite database setup with SQLAlchemy.
 
 import os
 import logging
+from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 from dotenv import load_dotenv
@@ -17,11 +18,12 @@ logger = logging.getLogger(__name__)
 # Database URL - SQLite with aiosqlite for async support
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./iman_os.db")
 
-# Create async engine
+# Create async engine with SQLite-specific settings
 engine = create_async_engine(
     DATABASE_URL,
     echo=os.getenv("DEBUG", "false").lower() == "true",
     future=True,
+    connect_args={"timeout": 30, "check_same_thread": False},
 )
 
 # Async session factory
@@ -69,6 +71,9 @@ async def init_db():
     logger.info(f"Initializing database: {DATABASE_URL}")
 
     async with engine.begin() as conn:
+        # Enable WAL mode for better concurrency
+        await conn.execute(text("PRAGMA journal_mode=WAL"))
+        await conn.execute(text("PRAGMA busy_timeout=30000"))
         await conn.run_sync(Base.metadata.create_all)
 
     logger.info("Database tables created successfully")
