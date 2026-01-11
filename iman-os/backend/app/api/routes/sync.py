@@ -14,7 +14,7 @@ from ...services.smartlead import SmartleadAPIError
 router = APIRouter()
 
 
-@router.post("/")
+@router.post("")
 async def trigger_sync(
     db: AsyncSession = Depends(get_db),
 ):

@@ -47,12 +47,13 @@ async def lifespan(app: FastAPI):
     logger.info("Shutting down IMAN OS Backend...")
 
 
-# Create FastAPI app
+# Create FastAPI app (redirect_slashes=False prevents 307 redirects)
 app = FastAPI(
     title="IMAN OS",
     description="Campaign Analytics Dashboard for Smartlead",
     version="0.1.0",
     lifespan=lifespan,
+    redirect_slashes=False,
 )
 
 # CORS middleware

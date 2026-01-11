@@ -15,7 +15,7 @@ from ...services.smartlead import SmartleadAPIError
 router = APIRouter()
 
 
-@router.get("/")
+@router.get("")
 async def get_suggestions(
     db: AsyncSession = Depends(get_db),
 ):

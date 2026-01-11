@@ -41,8 +41,8 @@ export const api = {
   // Stats
   getOverview: (days = 7) => request(`/stats/overview?days=${days}`),
 
-  // Sync (trailing slash required by FastAPI)
-  triggerSync: () => request('/sync/', { method: 'POST' }),
+  // Sync
+  triggerSync: () => request('/sync', { method: 'POST' }),
   getSyncStatus: () => request('/sync/status'),
 
   // Suggestions

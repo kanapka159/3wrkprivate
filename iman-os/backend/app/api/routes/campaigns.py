@@ -18,7 +18,7 @@ from ...services.suggestion_engine import SuggestionEngine
 router = APIRouter()
 
 
-@router.get("/")
+@router.get("")
 async def list_campaigns(
     status: Optional[str] = Query(None, description="Filter by status"),
     client_id: Optional[int] = Query(None, description="Filter by client ID"),
