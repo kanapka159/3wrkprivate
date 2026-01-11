@@ -4,6 +4,7 @@ Campaign Routes
 API endpoints for managing campaigns.
 """
 
+from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
@@ -18,6 +19,22 @@ from ...services.suggestion_engine import SuggestionEngine
 router = APIRouter()
 
 
+def _get_period_stats(daily_stats_by_campaign: dict, campaign_id: int, cutoff_date: datetime) -> dict:
+    """Calculate stats for a specific period."""
+    stats = daily_stats_by_campaign.get(campaign_id, [])
+    period_stats = [s for s in stats if s["date"] >= cutoff_date]
+
+    sent = sum(s["sent"] for s in period_stats)
+    opens = sum(s["opens"] for s in period_stats)
+    bounces = sum(s["bounces"] for s in period_stats)
+
+    return {
+        "sent_count": sent,
+        "open_count": opens,
+        "bounce_count": bounces,
+    }
+
+
 @router.get("/")
 async def list_campaigns(
     status: Optional[str] = Query(None, description="Filter by status"),
@@ -28,74 +45,95 @@ async def list_campaigns(
     db: AsyncSession = Depends(get_db),
 ):
     """
-    List all campaigns with stats.
-
-    Filters:
-    - status: Filter by campaign status (STARTED, PAUSED, STOPPED)
-    - client_id: Filter by client ID
-    - only_suggestions: Only return campaigns that need action
+    List all campaigns with stats including period-specific stats (7d, 14d, 28d).
     """
-    # Build subquery for aggregated stats from daily stats
-    stats_subquery = (
+    # Calculate cutoff dates for periods
+    now = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    cutoff_7d = now - timedelta(days=7)
+    cutoff_14d = now - timedelta(days=14)
+    cutoff_28d = now - timedelta(days=28)
+
+    # Get all campaigns
+    campaign_query = select(Campaign)
+    if status:
+        campaign_query = campaign_query.where(Campaign.status == status.upper())
+    if client_id:
+        campaign_query = campaign_query.where(Campaign.client_id == client_id)
+    campaign_query = campaign_query.order_by(Campaign.created_at.desc())
+
+    campaigns_result = await db.execute(campaign_query)
+    campaigns = campaigns_result.scalars().all()
+
+    # Get all daily stats for last 28 days (covers all periods)
+    daily_stats_result = await db.execute(
         select(
             CampaignDailyStats.campaign_id,
-            func.sum(CampaignDailyStats.unique_sent).label("total_sent"),
-            func.sum(CampaignDailyStats.open_count).label("total_opens"),
-            func.sum(CampaignDailyStats.bounce_count).label("total_bounces"),
-        )
-        .group_by(CampaignDailyStats.campaign_id)
-        .subquery()
+            CampaignDailyStats.date,
+            CampaignDailyStats.unique_sent,
+            CampaignDailyStats.open_count,
+            CampaignDailyStats.bounce_count,
+        ).where(CampaignDailyStats.date >= cutoff_28d)
     )
 
-    # Build subquery for reply counts from LeadReply (more accurate than daily stats)
-    replies_subquery = (
+    # Group daily stats by campaign
+    daily_stats_by_campaign = {}
+    for row in daily_stats_result:
+        cid = row.campaign_id
+        if cid not in daily_stats_by_campaign:
+            daily_stats_by_campaign[cid] = []
+        daily_stats_by_campaign[cid].append({
+            "date": row.date,
+            "sent": row.unique_sent or 0,
+            "opens": row.open_count or 0,
+            "bounces": row.bounce_count or 0,
+        })
+
+    # Get reply counts from LeadReply (total per campaign)
+    replies_result = await db.execute(
         select(
             LeadReply.campaign_id,
             func.count(LeadReply.id).label("total_replied"),
             func.sum(case((LeadReply.is_positive == True, 1), else_=0)).label("total_positive"),
-        )
-        .group_by(LeadReply.campaign_id)
-        .subquery()
+        ).group_by(LeadReply.campaign_id)
     )
-
-    # Main query with both subqueries
-    query = (
-        select(Campaign, stats_subquery, replies_subquery)
-        .outerjoin(stats_subquery, Campaign.id == stats_subquery.c.campaign_id)
-        .outerjoin(replies_subquery, Campaign.id == replies_subquery.c.campaign_id)
-    )
-
-    if status:
-        query = query.where(Campaign.status == status.upper())
-    if client_id:
-        query = query.where(Campaign.client_id == client_id)
-
-    query = query.order_by(Campaign.created_at.desc())
-
-    result = await db.execute(query)
-    rows = result.all()
+    replies_by_campaign = {r.campaign_id: {"replied": r.total_replied or 0, "positive": r.total_positive or 0} for r in replies_result}
 
     # Process campaigns
     suggestion_engine = SuggestionEngine(db)
     campaigns_list = []
 
-    for row in rows:
-        campaign = row[0]
-        sent = row.total_sent or 0
-        replied = row.total_replied or 0
-        positive = row.total_positive or 0
-        opens = row.total_opens or 0
-        bounces = row.total_bounces or 0
+    for campaign in campaigns:
+        cid = campaign.id
 
-        reply_rate = round((replied / sent * 100), 2) if sent > 0 else 0
+        # Get reply data
+        reply_data = replies_by_campaign.get(cid, {"replied": 0, "positive": 0})
+        replied = reply_data["replied"]
+        positive = reply_data["positive"]
+
+        # Calculate period-specific stats
+        stats_7d = _get_period_stats(daily_stats_by_campaign, cid, cutoff_7d)
+        stats_14d = _get_period_stats(daily_stats_by_campaign, cid, cutoff_14d)
+        stats_28d = _get_period_stats(daily_stats_by_campaign, cid, cutoff_28d)
+
+        # Calculate rates for each period using total replies (we don't have per-period reply data)
+        # Use 28d sent as the base for reply rate calculation
+        sent_28d = stats_28d["sent_count"]
+        reply_rate = round((replied / sent_28d * 100), 2) if sent_28d > 0 else 0
         positive_rate = round((positive / replied * 100), 2) if replied > 0 else 0
-        open_rate = round((opens / sent * 100), 2) if sent > 0 else 0
-        bounce_rate = round((bounces / sent * 100), 2) if sent > 0 else 0
 
-        # Generate suggestion
+        # Period-specific rates
+        sent_7d = stats_7d["sent_count"]
+        sent_14d = stats_14d["sent_count"]
+
+        # For reply rate, we use total replies / period sent (approximation)
+        reply_rate_7d = round((replied / sent_7d * 100), 2) if sent_7d > 0 else 0
+        reply_rate_14d = round((replied / sent_14d * 100), 2) if sent_14d > 0 else 0
+        reply_rate_28d = round((replied / sent_28d * 100), 2) if sent_28d > 0 else 0
+
+        # Generate suggestion based on 28d stats
         campaign_data = {
-            "sent_count": sent,
-            "reply_rate": reply_rate,
+            "sent_count": sent_28d,
+            "reply_rate": reply_rate_28d,
             "positive_rate": positive_rate,
         }
         suggestion = suggestion_engine.generate_suggestion(campaign_data)
@@ -116,15 +154,35 @@ async def list_campaigns(
             "last_synced_at": campaign.last_synced_at.isoformat() if campaign.last_synced_at else None,
             "created_at": campaign.created_at.isoformat() if campaign.created_at else None,
             "stats": {
-                "sent_count": sent,
+                "sent_count": sent_28d,
                 "reply_count": replied,
                 "positive_count": positive,
-                "open_count": opens,
-                "bounce_count": bounces,
-                "reply_rate": reply_rate,
+                "open_count": stats_28d["open_count"],
+                "bounce_count": stats_28d["bounce_count"],
+                "reply_rate": reply_rate_28d,
                 "positive_rate": positive_rate,
-                "open_rate": open_rate,
-                "bounce_rate": bounce_rate,
+                "open_rate": round((stats_28d["open_count"] / sent_28d * 100), 2) if sent_28d > 0 else 0,
+                "bounce_rate": round((stats_28d["bounce_count"] / sent_28d * 100), 2) if sent_28d > 0 else 0,
+            },
+            "periods": {
+                "7_days": {
+                    "sent_count": sent_7d,
+                    "reply_rate": reply_rate_7d,
+                    "open_count": stats_7d["open_count"],
+                    "bounce_count": stats_7d["bounce_count"],
+                },
+                "14_days": {
+                    "sent_count": sent_14d,
+                    "reply_rate": reply_rate_14d,
+                    "open_count": stats_14d["open_count"],
+                    "bounce_count": stats_14d["bounce_count"],
+                },
+                "28_days": {
+                    "sent_count": sent_28d,
+                    "reply_rate": reply_rate_28d,
+                    "open_count": stats_28d["open_count"],
+                    "bounce_count": stats_28d["bounce_count"],
+                },
             },
             "suggestion": suggestion,
             "warnings": warnings,
