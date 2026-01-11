@@ -66,8 +66,35 @@ async def get_stats_overview(
     opens = row[3] or 0
     bounces = row[4] or 0
 
-    reply_rate = round((replied / sent * 100), 2) if sent > 0 else 0
-    positive_rate = round((positive / replied * 100), 2) if replied > 0 else 0
+    # Calculate per-campaign stats for averaging (exclude campaigns with 0 replies)
+    per_campaign_stats = await db.execute(
+        select(
+            CampaignDailyStats.campaign_id,
+            func.sum(CampaignDailyStats.unique_sent).label("campaign_sent"),
+            func.sum(CampaignDailyStats.unique_replied).label("campaign_replied"),
+            func.sum(CampaignDailyStats.positive_replies).label("campaign_positive"),
+        )
+        .where(CampaignDailyStats.date >= cutoff_date)
+        .group_by(CampaignDailyStats.campaign_id)
+    )
+
+    # Calculate average reply rate across campaigns (excluding 0-reply campaigns)
+    reply_rates = []
+    positive_rates = []
+    for r in per_campaign_stats:
+        camp_sent = r.campaign_sent or 0
+        camp_replied = r.campaign_replied or 0
+        camp_positive = r.campaign_positive or 0
+
+        if camp_sent > 0 and camp_replied > 0:  # Only include campaigns with replies
+            reply_rates.append((camp_replied / camp_sent) * 100)
+            if camp_replied > 0:
+                positive_rates.append((camp_positive / camp_replied) * 100)
+
+    avg_reply_rate = round(sum(reply_rates) / len(reply_rates), 2) if reply_rates else 0
+    avg_positive_rate = round(sum(positive_rates) / len(positive_rates), 2) if positive_rates else 0
+
+    # Overall rates for reference
     open_rate = round((opens / sent * 100), 2) if sent > 0 else 0
     bounce_rate = round((bounces / sent * 100), 2) if sent > 0 else 0
 
@@ -104,8 +131,8 @@ async def get_stats_overview(
             "positive_count": positive,
             "open_count": opens,
             "bounce_count": bounces,
-            "reply_rate": reply_rate,
-            "positive_rate": positive_rate,
+            "reply_rate": avg_reply_rate,
+            "positive_rate": avg_positive_rate,
             "open_rate": open_rate,
             "bounce_rate": bounce_rate,
         },
