@@ -62,6 +62,7 @@ async def init_db():
     Initialize database tables on startup.
 
     Creates all tables defined in models if they don't exist.
+    Also adds any new columns to existing tables.
     """
     # Import models to register them with Base.metadata
     from . import models  # noqa: F401
@@ -70,5 +71,25 @@ async def init_db():
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+
+        # Add new columns to campaigns table if they don't exist (for migration)
+        # SQLite doesn't support IF NOT EXISTS for columns, so we check first
+        try:
+            from sqlalchemy import text
+            # Check if total_sent column exists
+            result = await conn.execute(text("PRAGMA table_info(campaigns)"))
+            columns = [row[1] for row in result.fetchall()]
+
+            if 'total_sent' not in columns:
+                logger.info("Adding aggregate stats columns to campaigns table...")
+                await conn.execute(text("ALTER TABLE campaigns ADD COLUMN total_sent INTEGER DEFAULT 0"))
+                await conn.execute(text("ALTER TABLE campaigns ADD COLUMN total_replied INTEGER DEFAULT 0"))
+                await conn.execute(text("ALTER TABLE campaigns ADD COLUMN total_positive INTEGER DEFAULT 0"))
+                await conn.execute(text("ALTER TABLE campaigns ADD COLUMN total_opened INTEGER DEFAULT 0"))
+                await conn.execute(text("ALTER TABLE campaigns ADD COLUMN total_bounced INTEGER DEFAULT 0"))
+                await conn.execute(text("ALTER TABLE campaigns ADD COLUMN total_clicked INTEGER DEFAULT 0"))
+                logger.info("Aggregate stats columns added successfully")
+        except Exception as e:
+            logger.warning(f"Could not add aggregate columns (may already exist): {e}")
 
     logger.info("Database tables created successfully")
