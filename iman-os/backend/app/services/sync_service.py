@@ -295,7 +295,7 @@ class SyncService:
         if stats:
             logger.info(f"Sample lead stat for campaign {campaign_id}: {stats[0]}")
 
-        # Filter to only replied leads - check multiple possible field names and values
+        # Filter to only replied leads - check multiple possible indicators
         replied_leads = []
         for s in stats:
             # Check various possible field names and values for replied status
@@ -303,8 +303,11 @@ class SyncService:
             email_status = str(s.get("email_status", "")).upper()
             status = str(s.get("status", "")).upper()
             reply_status = str(s.get("reply_status", "")).upper()
+            # reply_time is the key indicator in Smartlead - if not null, lead replied
+            reply_time = s.get("reply_time")
 
             if any([
+                reply_time is not None,  # Main indicator in Smartlead API
                 lead_status == "REPLIED",
                 email_status == "REPLIED",
                 status == "REPLIED",
@@ -452,11 +455,19 @@ class SyncService:
         daily_stats = result.scalar_one_or_none()
 
         # Helper to get value from multiple possible field names
+        # Also handles string values (Smartlead returns strings like "4" instead of 4)
         def get_val(*keys):
             for key in keys:
                 val = stats_data.get(key)
-                if val is not None and val != 0:
-                    return val
+                if val is not None:
+                    # Convert string to int if needed
+                    if isinstance(val, str):
+                        try:
+                            val = int(val)
+                        except ValueError:
+                            continue
+                    if val != 0:
+                        return val
             return 0
 
         # Extract values using various possible field names from Smartlead API
