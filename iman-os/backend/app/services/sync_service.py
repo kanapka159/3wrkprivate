@@ -158,14 +158,14 @@ class SyncService:
                         except SmartleadAPIError as e:
                             logger.warning(f"Failed to get daily analytics for campaign {smartlead_id}: {e.message}")
 
-                        # 3c: Paginate ALL statistics
+                        # 3c: Get REPLIED leads specifically (much faster than paginating all stats)
                         try:
-                            all_stats = await self._paginate_statistics(client, smartlead_id)
+                            replied_stats = await self._fetch_replied_leads(client, smartlead_id)
                             await asyncio.sleep(API_DELAY)
 
                             # 3d: Dedupe replies and count
-                            replies_count, positive_count = await self._dedupe_replies(
-                                campaign.id, all_stats
+                            replies_count, positive_count = await self._process_replied_leads(
+                                campaign.id, replied_stats
                             )
                             total_replies_synced += replies_count
 
@@ -173,7 +173,7 @@ class SyncService:
                             await self._update_campaign_reply_counts(campaign.id)
 
                         except SmartleadAPIError as e:
-                            logger.warning(f"Failed to get statistics for campaign {smartlead_id}: {e.message}")
+                            logger.warning(f"Failed to get replied leads for campaign {smartlead_id}: {e.message}")
 
                         # 3e: Get sequences
                         try:
@@ -276,6 +276,128 @@ class SyncService:
 
         logger.info(f"Fetched {len(all_stats)} total statistics for campaign {campaign_id}")
         return all_stats
+
+    async def _fetch_replied_leads(self, client: SmartleadClient, campaign_id: int) -> list[dict]:
+        """
+        Fetch only replied leads using the email_status filter.
+
+        This is much faster than fetching all leads and filtering locally.
+        """
+        all_replied = []
+        offset = 0
+
+        while True:
+            logger.debug(f"Fetching replied leads at offset {offset}")
+
+            # Use email_status filter to get only replied leads
+            result = await client.get_campaign_statistics(
+                campaign_id=campaign_id,
+                offset=offset,
+                limit=PAGE_SIZE,
+                email_status="REPLIED",
+            )
+            await asyncio.sleep(API_DELAY)
+
+            # Handle different response formats
+            if isinstance(result, dict):
+                data = result.get("data", [])
+            elif isinstance(result, list):
+                data = result
+            else:
+                data = []
+
+            if not data:
+                break
+
+            all_replied.extend(data)
+
+            # If we got fewer than PAGE_SIZE, we're done
+            if len(data) < PAGE_SIZE:
+                break
+
+            offset += PAGE_SIZE
+
+        logger.info(f"Fetched {len(all_replied)} replied leads for campaign {campaign_id}")
+        return all_replied
+
+    async def _process_replied_leads(self, campaign_id: int, stats: list[dict]) -> tuple[int, int]:
+        """
+        Process replied leads - insert to lead_replies table with deduplication.
+
+        Args:
+            campaign_id: Local campaign ID
+            stats: List of replied lead statistics
+
+        Returns:
+            Tuple of (total_replies_synced, positive_replies_count)
+        """
+        replies_synced = 0
+        positive_count = 0
+
+        if not stats:
+            logger.info(f"No replied leads to process for campaign {campaign_id}")
+            return 0, 0
+
+        # Log sample data
+        logger.info(f"Processing {len(stats)} replied leads for campaign {campaign_id}")
+        logger.info(f"Sample replied lead: {stats[0]}")
+
+        for lead_data in stats:
+            email = lead_data.get("lead_email") or lead_data.get("email")
+            if not email:
+                continue
+
+            # Check if already exists (dedupe by email)
+            result = await self.db.execute(
+                select(LeadReply).where(
+                    LeadReply.campaign_id == campaign_id,
+                    LeadReply.lead_email == email,
+                )
+            )
+            existing = result.scalar_one_or_none()
+
+            # Determine if positive based on lead_category
+            category = lead_data.get("lead_category", "") or ""
+            is_positive = is_positive_category(category)
+
+            if is_positive:
+                positive_count += 1
+
+            # Get reply time
+            reply_time_str = lead_data.get("reply_time")
+            reply_time = None
+            if reply_time_str:
+                try:
+                    reply_time = datetime.fromisoformat(reply_time_str.replace('Z', '+00:00'))
+                except (ValueError, AttributeError):
+                    reply_time = datetime.utcnow()
+
+            if existing:
+                # Update existing
+                existing.lead_name = lead_data.get("lead_name") or lead_data.get("name") or lead_data.get("first_name")
+                existing.lead_category = category
+                existing.is_positive = is_positive
+                existing.sequence_number = lead_data.get("sequence_number")
+                existing.variant_id = lead_data.get("seq_variant_id") or lead_data.get("variant_id")
+            else:
+                # Insert new
+                lead_reply = LeadReply(
+                    campaign_id=campaign_id,
+                    lead_email=email,
+                    lead_name=lead_data.get("lead_name") or lead_data.get("name") or lead_data.get("first_name"),
+                    lead_category=category,
+                    first_reply_time=reply_time or datetime.utcnow(),
+                    is_positive=is_positive,
+                    sequence_number=lead_data.get("sequence_number"),
+                    variant_id=lead_data.get("seq_variant_id") or lead_data.get("variant_id"),
+                )
+                self.db.add(lead_reply)
+                replies_synced += 1
+
+        await self.db.flush()
+        logger.info(f"Synced {replies_synced} new replies for campaign {campaign_id}")
+
+        return replies_synced, positive_count
 
     async def _dedupe_replies(self, campaign_id: int, stats: list[dict]) -> tuple[int, int]:
         """
