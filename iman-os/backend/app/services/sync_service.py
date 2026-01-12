@@ -289,12 +289,12 @@ class SyncService:
         while True:
             logger.debug(f"Fetching replied leads at offset {offset}")
 
-            # Use email_status filter to get only replied leads
+            # Use email_status filter to get only replied leads (lowercase!)
             result = await client.get_campaign_statistics(
                 campaign_id=campaign_id,
                 offset=offset,
                 limit=PAGE_SIZE,
-                email_status="REPLIED",
+                email_status="replied",
             )
             await asyncio.sleep(API_DELAY)
 
