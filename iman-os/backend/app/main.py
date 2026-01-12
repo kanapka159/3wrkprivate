@@ -90,6 +90,7 @@ async def health_check():
 async def reset_database():
     """Reset the database - clears all data and recreates tables."""
     import glob
+    from .db.database import engine, Base
 
     # Remove SQLite files
     db_files = glob.glob("*.db*")
@@ -99,6 +100,9 @@ async def reset_database():
             logger.info(f"Removed {f}")
         except Exception as e:
             logger.warning(f"Could not remove {f}: {e}")
+
+    # Dispose existing connections
+    await engine.dispose()
 
     # Recreate tables
     await init_db()
