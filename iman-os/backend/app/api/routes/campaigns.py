@@ -4,10 +4,11 @@ Campaign Routes
 API endpoints for managing campaigns.
 """
 
+from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func
+from sqlalchemy import select, func, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db import get_db, Campaign, CampaignDailyStats, Sequence
@@ -16,6 +17,45 @@ from ...services.smartlead import SmartleadAPIError
 from ...services.suggestion_engine import SuggestionEngine
 
 router = APIRouter()
+
+
+async def get_period_stats_for_campaign(db: AsyncSession, campaign_id: int, days: int) -> dict:
+    """Get aggregated stats for a specific time period."""
+    cutoff_date = datetime.utcnow() - timedelta(days=days)
+
+    result = await db.execute(
+        select(
+            func.sum(CampaignDailyStats.unique_sent).label("total_sent"),
+            func.sum(CampaignDailyStats.unique_replied).label("total_replied"),
+            func.sum(CampaignDailyStats.positive_replies).label("total_positive"),
+            func.sum(CampaignDailyStats.open_count).label("total_opens"),
+            func.sum(CampaignDailyStats.bounce_count).label("total_bounces"),
+        ).where(
+            and_(
+                CampaignDailyStats.campaign_id == campaign_id,
+                CampaignDailyStats.date >= cutoff_date,
+            )
+        )
+    )
+    row = result.one()
+
+    sent = row.total_sent or 0
+    replied = row.total_replied or 0
+    positive = row.total_positive or 0
+    opens = row.total_opens or 0
+    bounces = row.total_bounces or 0
+
+    return {
+        "sent_count": sent,
+        "reply_count": replied,
+        "positive_count": positive,
+        "open_count": opens,
+        "bounce_count": bounces,
+        "reply_rate": round((replied / sent * 100), 2) if sent > 0 else 0,
+        "positive_rate": round((positive / replied * 100), 2) if replied > 0 else 0,
+        "open_rate": round((opens / sent * 100), 2) if sent > 0 else 0,
+        "bounce_rate": round((bounces / sent * 100), 2) if sent > 0 else 0,
+    }
 
 
 @router.get("")
@@ -96,6 +136,11 @@ async def list_campaigns(
             if suggestion["color"] == "green" and not warnings:
                 continue
 
+        # Get period-specific stats
+        period_7d = await get_period_stats_for_campaign(db, campaign.id, 7)
+        period_14d = await get_period_stats_for_campaign(db, campaign.id, 14)
+        period_28d = await get_period_stats_for_campaign(db, campaign.id, 28)
+
         campaigns_list.append({
             "id": campaign.id,
             "smartlead_id": campaign.smartlead_id,
@@ -115,6 +160,11 @@ async def list_campaigns(
                 "positive_rate": positive_rate,
                 "open_rate": open_rate,
                 "bounce_rate": bounce_rate,
+            },
+            "periods": {
+                "7_days": period_7d,
+                "14_days": period_14d,
+                "28_days": period_28d,
             },
             "suggestion": suggestion,
             "warnings": warnings,
