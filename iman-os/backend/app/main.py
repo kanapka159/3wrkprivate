@@ -128,6 +128,74 @@ async def debug_campaign_api(smartlead_id: int, email_status: str = None):
         }
 
 
+@app.post("/quick-sync/{smartlead_id}")
+async def quick_sync_campaign(smartlead_id: int):
+    """Quick sync a single campaign with minimal database operations."""
+    from fastapi import Depends
+    from .services import SmartleadClient, SyncService
+    from .db.database import AsyncSessionLocal, init_db
+
+    try:
+        # Ensure tables exist
+        await init_db()
+
+        async with AsyncSessionLocal() as db:
+            async with SmartleadClient() as client:
+                # Get campaign data
+                all_campaigns = await client.get_all_campaigns()
+                campaigns = all_campaigns.get("data", all_campaigns) if isinstance(all_campaigns, dict) else all_campaigns or []
+
+                campaign_data = next((c for c in campaigns if c.get("id") == smartlead_id), None)
+                if not campaign_data:
+                    return {"error": f"Campaign {smartlead_id} not found in API"}
+
+                sync_service = SyncService(db)
+
+                # Upsert campaign
+                campaign = await sync_service._upsert_campaign(campaign_data)
+                logger.info(f"Upserted campaign {campaign.id}")
+
+                # Get analytics
+                analytics = await client.get_campaign_analytics(smartlead_id)
+                logger.info(f"Got analytics")
+
+                # Store analytics
+                from datetime import datetime
+                today = datetime.utcnow().strftime("%Y-%m-%d")
+                await sync_service._upsert_daily_stats(campaign.id, {**analytics, "date": today})
+                logger.info(f"Stored daily stats")
+
+                # Get replied leads
+                replied = await client.get_campaign_statistics(smartlead_id, offset=0, limit=100, email_status="replied")
+                replied_data = replied.get("data", []) if isinstance(replied, dict) else []
+                logger.info(f"Got {len(replied_data)} replied leads")
+
+                # Process replied leads
+                replies_count, positive_count = await sync_service._process_replied_leads(campaign.id, replied_data)
+                logger.info(f"Processed replies: {replies_count} new, {positive_count} positive")
+
+                await db.commit()
+                logger.info(f"Committed to database")
+
+                return {
+                    "status": "success",
+                    "campaign_id": campaign.id,
+                    "smartlead_id": smartlead_id,
+                    "name": campaign.name,
+                    "sent_count": analytics.get("sent_count"),
+                    "reply_count": analytics.get("reply_count"),
+                    "replied_leads_found": len(replied_data),
+                    "replies_synced": replies_count,
+                    "positive_replies": positive_count,
+                }
+
+    except Exception as e:
+        import traceback
+        error_trace = traceback.format_exc()
+        logger.error(f"Quick sync failed: {error_trace}")
+        return {"error": str(e), "trace": error_trace}
+
+
 if __name__ == "__main__":
     import uvicorn
 
