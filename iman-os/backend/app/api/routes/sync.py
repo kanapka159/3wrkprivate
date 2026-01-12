@@ -4,12 +4,17 @@ Sync Routes
 API endpoints for data synchronization with Smartlead.
 """
 
+import logging
+import traceback
+
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db import get_db
 from ...services import SyncService
 from ...services.smartlead import SmartleadAPIError
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -34,9 +39,12 @@ async def trigger_sync(
         result = await sync_service.sync_all_campaigns()
         return result
     except SmartleadAPIError as e:
+        logger.error(f"Smartlead API error: {e.message}")
         raise HTTPException(status_code=e.status_code or 500, detail=e.message)
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        error_trace = traceback.format_exc()
+        logger.error(f"Sync failed: {error_trace}")
+        raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}\n\n{error_trace}")
 
 
 @router.get("/status")
