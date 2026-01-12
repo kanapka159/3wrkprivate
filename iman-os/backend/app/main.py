@@ -107,17 +107,18 @@ async def reset_database():
 
 
 @app.get("/debug/campaign/{smartlead_id}")
-async def debug_campaign_api(smartlead_id: int):
+async def debug_campaign_api(smartlead_id: int, email_status: str = None):
     """Debug endpoint to see raw Smartlead API responses for a campaign."""
     from .services import SmartleadClient
 
     async with SmartleadClient() as client:
         # Fetch raw responses
         analytics = await client.get_campaign_analytics(smartlead_id)
-        statistics = await client.get_campaign_statistics(smartlead_id, offset=0, limit=10)
+        statistics = await client.get_campaign_statistics(smartlead_id, offset=0, limit=10, email_status=email_status)
 
         return {
             "smartlead_id": smartlead_id,
+            "email_status_filter": email_status,
             "analytics_response": analytics,
             "statistics_response_sample": statistics,
         }
