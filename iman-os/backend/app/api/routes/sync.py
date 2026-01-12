@@ -47,6 +47,66 @@ async def trigger_sync(
         raise HTTPException(status_code=500, detail=f"Sync failed: {str(e)}\n\n{error_trace}")
 
 
+@router.post("/single/{smartlead_id}")
+async def sync_single_campaign(
+    smartlead_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """Sync a single campaign by Smartlead ID."""
+    from ...services.smartlead import SmartleadClient
+
+    try:
+        async with SmartleadClient() as client:
+            # Get campaign info
+            all_campaigns = await client.get_all_campaigns()
+            if isinstance(all_campaigns, dict):
+                campaigns = all_campaigns.get("data", [])
+            else:
+                campaigns = all_campaigns or []
+
+            campaign_data = next((c for c in campaigns if c.get("id") == smartlead_id), None)
+            if not campaign_data:
+                return {"error": f"Campaign {smartlead_id} not found"}
+
+            sync_service = SyncService(db)
+
+            # Upsert campaign
+            campaign = await sync_service._upsert_campaign(campaign_data)
+
+            # Get analytics
+            analytics = await client.get_campaign_analytics(smartlead_id)
+
+            # Get replied leads
+            replied = await client.get_campaign_statistics(smartlead_id, offset=0, limit=100, email_status="replied")
+            replied_data = replied.get("data", []) if isinstance(replied, dict) else []
+
+            # Process replied leads
+            replies_count, positive_count = await sync_service._process_replied_leads(campaign.id, replied_data)
+
+            # Store analytics
+            if isinstance(analytics, dict):
+                from datetime import datetime
+                today = datetime.utcnow().strftime("%Y-%m-%d")
+                await sync_service._upsert_daily_stats(campaign.id, {**analytics, "date": today})
+
+            await db.commit()
+
+            return {
+                "status": "success",
+                "campaign_id": campaign.id,
+                "smartlead_id": smartlead_id,
+                "name": campaign.name,
+                "analytics": analytics,
+                "replied_leads_found": len(replied_data),
+                "replies_synced": replies_count,
+                "positive_replies": positive_count,
+            }
+    except Exception as e:
+        error_trace = traceback.format_exc()
+        logger.error(f"Single sync failed: {error_trace}")
+        return {"error": str(e), "trace": error_trace}
+
+
 @router.get("/status")
 async def get_sync_status(
     db: AsyncSession = Depends(get_db),
