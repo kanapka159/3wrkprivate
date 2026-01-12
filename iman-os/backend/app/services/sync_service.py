@@ -291,8 +291,31 @@ class SyncService:
         replies_synced = 0
         positive_count = 0
 
-        # Filter to only replied leads
-        replied_leads = [s for s in stats if s.get("lead_status") == "REPLIED" or s.get("email_status") == "REPLIED"]
+        # Log sample data to debug field names
+        if stats:
+            logger.info(f"Sample lead stat for campaign {campaign_id}: {stats[0]}")
+
+        # Filter to only replied leads - check multiple possible field names and values
+        replied_leads = []
+        for s in stats:
+            # Check various possible field names and values for replied status
+            lead_status = str(s.get("lead_status", "")).upper()
+            email_status = str(s.get("email_status", "")).upper()
+            status = str(s.get("status", "")).upper()
+            reply_status = str(s.get("reply_status", "")).upper()
+
+            if any([
+                lead_status == "REPLIED",
+                email_status == "REPLIED",
+                status == "REPLIED",
+                reply_status == "REPLIED",
+                s.get("replied", False),
+                s.get("has_replied", False),
+                s.get("is_replied", False),
+            ]):
+                replied_leads.append(s)
+
+        logger.info(f"Found {len(replied_leads)} replied leads out of {len(stats)} total for campaign {campaign_id}")
 
         for lead_data in replied_leads:
             email = lead_data.get("email")
@@ -437,14 +460,17 @@ class SyncService:
             return 0
 
         # Extract values using various possible field names from Smartlead API
-        sent = get_val("sent_count", "sent", "emails_sent", "total_sent")
-        replied = get_val("reply_count", "replied", "replies", "total_replied")
+        sent = get_val("sent_count", "sent", "emails_sent", "total_sent", "total_emails_sent")
+        replied = get_val("reply_count", "replied", "replies", "total_replied", "total_replies", "reply", "total_reply")
         unique_sent = get_val("unique_sent_count", "unique_sent", "unique_emails_sent")
-        unique_replied = get_val("unique_reply_count", "unique_replied", "unique_replies")
-        positive = get_val("positive_reply_count", "positive_replies", "positive_replied")
-        bounced = get_val("bounce_count", "bounced", "bounces", "total_bounced")
-        opened = get_val("open_count", "opened", "opens", "total_opened")
-        clicked = get_val("click_count", "clicked", "clicks", "total_clicked")
+        unique_replied = get_val("unique_reply_count", "unique_replied", "unique_replies", "unique_reply")
+        positive = get_val("positive_reply_count", "positive_replies", "positive_replied", "positive_reply", "interested")
+        bounced = get_val("bounce_count", "bounced", "bounces", "total_bounced", "total_bounces")
+        opened = get_val("open_count", "opened", "opens", "total_opened", "total_opens")
+        clicked = get_val("click_count", "clicked", "clicks", "total_clicked", "total_clicks")
+
+        # Log extracted values for debugging
+        logger.info(f"Daily stats for campaign {campaign_id} date {date_str}: sent={sent}, replied={replied}, opened={opened}, bounced={bounced}")
 
         if daily_stats:
             daily_stats.sent_count = sent
