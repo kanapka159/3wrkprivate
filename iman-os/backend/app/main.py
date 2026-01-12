@@ -86,6 +86,26 @@ async def health_check():
     return {"status": "ok"}
 
 
+@app.post("/reset-db")
+async def reset_database():
+    """Reset the database - clears all data and recreates tables."""
+    import glob
+
+    # Remove SQLite files
+    db_files = glob.glob("*.db*")
+    for f in db_files:
+        try:
+            os.remove(f)
+            logger.info(f"Removed {f}")
+        except Exception as e:
+            logger.warning(f"Could not remove {f}: {e}")
+
+    # Recreate tables
+    await init_db()
+
+    return {"status": "database reset", "removed_files": db_files}
+
+
 if __name__ == "__main__":
     import uvicorn
 
