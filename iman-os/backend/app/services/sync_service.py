@@ -392,9 +392,15 @@ class SyncService:
                     variant_id=lead_data.get("seq_variant_id") or lead_data.get("variant_id"),
                 )
                 self.db.add(lead_reply)
-                replies_synced += 1
+                # Flush immediately to handle duplicates
+                try:
+                    await self.db.flush()
+                    replies_synced += 1
+                except Exception as e:
+                    # Skip duplicate - rollback just this entry
+                    await self.db.rollback()
+                    logger.debug(f"Skipping duplicate reply for {email}: {e}")
 
-        await self.db.flush()
         logger.info(f"Synced {replies_synced} new replies for campaign {campaign_id}")
 
         return replies_synced, positive_count
