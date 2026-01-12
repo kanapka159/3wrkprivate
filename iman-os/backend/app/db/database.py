@@ -9,6 +9,7 @@ import logging
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import declarative_base
+from sqlalchemy.pool import NullPool
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -19,11 +20,13 @@ logger = logging.getLogger(__name__)
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite+aiosqlite:///./iman_os.db")
 
 # Create async engine with SQLite-specific settings
+# Use NullPool to avoid connection pooling issues with SQLite
 engine = create_async_engine(
     DATABASE_URL,
     echo=os.getenv("DEBUG", "false").lower() == "true",
     future=True,
-    connect_args={"timeout": 30, "check_same_thread": False},
+    poolclass=NullPool,  # Disable connection pooling for SQLite
+    connect_args={"timeout": 60, "check_same_thread": False},
 )
 
 # Async session factory
