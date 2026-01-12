@@ -106,6 +106,23 @@ async def reset_database():
     return {"status": "database reset", "removed_files": db_files}
 
 
+@app.get("/debug/campaign/{smartlead_id}")
+async def debug_campaign_api(smartlead_id: int):
+    """Debug endpoint to see raw Smartlead API responses for a campaign."""
+    from .services import SmartleadClient
+
+    async with SmartleadClient() as client:
+        # Fetch raw responses
+        analytics = await client.get_campaign_analytics(smartlead_id)
+        statistics = await client.get_campaign_statistics(smartlead_id, offset=0, limit=10)
+
+        return {
+            "smartlead_id": smartlead_id,
+            "analytics_response": analytics,
+            "statistics_response_sample": statistics,
+        }
+
+
 if __name__ == "__main__":
     import uvicorn
 
