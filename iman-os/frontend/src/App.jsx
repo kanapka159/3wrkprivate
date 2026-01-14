@@ -1,6 +1,6 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { MainLayout } from './components/layout';
-import { Dashboard, CampaignHealth, Settings, PlaceholderPage } from './pages';
+import { Dashboard, CampaignHealth, DomainHealth, Settings, PlaceholderPage } from './pages';
 
 function App() {
   return (
@@ -12,7 +12,7 @@ function App() {
           <Route path="settings" element={<Settings />} />
           {/* Placeholder routes for disabled items */}
           <Route path="clients" element={<PlaceholderPage title="Client Analytics" />} />
-          <Route path="domains" element={<PlaceholderPage title="Domain Health" />} />
+          <Route path="domains" element={<DomainHealth />} />
           <Route path="domain-replace" element={<PlaceholderPage title="Domain Replacement" />} />
           <Route path="ab-analytics" element={<PlaceholderPage title="A/B Analytics" />} />
           <Route path="launcher" element={<PlaceholderPage title="Campaign Launcher" />} />

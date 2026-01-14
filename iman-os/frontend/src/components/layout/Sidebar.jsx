@@ -15,7 +15,7 @@ const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Ops Dashboard', disabled: false },
   { to: '/clients', icon: Users, label: 'Client Analytics', disabled: true },
   { to: '/campaigns', icon: HeartPulse, label: 'Campaign Health', disabled: false },
-  { to: '/domains', icon: Globe, label: 'Domain Health', disabled: true },
+  { to: '/domains', icon: Globe, label: 'Domain Health', disabled: false },
   { to: '/domain-replace', icon: RefreshCw, label: 'Domain Replacement', disabled: true },
   { to: '/ab-analytics', icon: BarChart3, label: 'A/B Analytics', disabled: true },
   { to: '/launcher', icon: Rocket, label: 'Campaign Launcher', disabled: true },

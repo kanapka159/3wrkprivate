@@ -1,12 +1,9 @@
 import { useState, useMemo, useRef, useCallback } from 'react';
-import { BarChart3, Activity, AlertTriangle, Clock, ChevronDown, ChevronUp, Minus, Plus, Eye, EyeOff, RefreshCw, GripVertical } from 'lucide-react';
+import { BarChart3, Activity, Globe, ChevronDown, ChevronUp, Minus, Plus, RefreshCw, GripVertical } from 'lucide-react';
 import { PageHeader } from '../components/layout';
 import {
   StatsCard,
   StatusBadge,
-  SuggestionBadge,
-  FilterBar,
-  Button,
   LoadingSpinner,
 } from '../components/shared';
 import { useApi, useMutation } from '../hooks/useApi';
@@ -45,16 +42,12 @@ function isFollowUpCampaign(campaign) {
   return name.includes('follow up') || name.includes('follow-up') || name.includes('followup');
 }
 
-// Top loading banner component
-function SyncingBanner({ isVisible }) {
-  if (!isVisible) return null;
-
-  return (
-    <div className="fixed top-0 left-0 right-0 z-50 bg-accent/90 text-white py-2 px-4 flex items-center justify-center gap-3 shadow-lg">
-      <RefreshCw size={18} className="animate-spin" />
-      <span className="font-medium">Syncing campaigns...</span>
-    </div>
-  );
+// Get campaign provider (HYPERTIDE, GOOGLE, or OTHER)
+function getCampaignProvider(campaign) {
+  const name = (campaign.name || '').toUpperCase();
+  if (name.includes('HYPERTIDE')) return 'HYPERTIDE';
+  if (name.includes('GOOGLE')) return 'GOOGLE';
+  return 'OTHER';
 }
 
 // Warning Badge with Tooltip
@@ -152,7 +145,7 @@ function StatusDropdown({ status, campaignId, onStatusChange, disabled }) {
 }
 
 // Sortable header component with two-line support
-function SortableHeader({ label, subLabel, field, sortField, sortDirection, onSort, align = 'left', minWidth, resizable = false }) {
+function SortableHeader({ label, subLabel, field, sortField, sortDirection, onSort, align = 'left', minWidth }) {
   const isActive = sortField === field;
   const alignClass = align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : 'text-left';
   const flexAlign = align === 'center' ? 'items-center' : align === 'right' ? 'items-end' : 'items-start';
@@ -160,7 +153,7 @@ function SortableHeader({ label, subLabel, field, sortField, sortDirection, onSo
 
   return (
     <th
-      className={`px-3 py-3 text-white text-xs font-semibold uppercase tracking-wider cursor-pointer hover:text-accent transition-colors ${alignClass} ${resizable ? 'resize-x overflow-auto' : ''}`}
+      className={`px-3 py-3 text-white text-xs font-semibold uppercase tracking-wider cursor-pointer hover:text-accent transition-colors ${alignClass}`}
       onClick={() => onSort(field)}
       style={minWidth ? { minWidth } : {}}
     >
@@ -179,8 +172,8 @@ function SortableHeader({ label, subLabel, field, sortField, sortDirection, onSo
   );
 }
 
-// Reusable Campaign Table component
-function CampaignTable({
+// Reusable Campaign Table component for Domain Health
+function ProviderCampaignTable({
   campaigns,
   isInitialLoading,
   onStatusChange,
@@ -188,9 +181,6 @@ function CampaignTable({
   updatingStatus,
   hidingId,
   emptyMessage = "No campaigns found.",
-  showUnhide = false,
-  onRefreshTable,
-  isRefreshing = false,
   title,
   titleColor = 'white',
   lastRefreshed,
@@ -254,7 +244,6 @@ function CampaignTable({
           bVal = new Date(b.created_at || 0).getTime();
           break;
         case 'status':
-          // Use custom sort order for status
           aVal = getStatusSortOrder(a.status);
           bVal = getStatusSortOrder(b.status);
           break;
@@ -313,7 +302,6 @@ function CampaignTable({
     const activeCampaigns = sortedCampaigns.filter(c => c.status === 'STARTED' || c.status === 'ACTIVE');
     const count = sortedCampaigns.length;
 
-    // Calculate averages
     let total7dSent = 0, total7dRate = 0, total14dSent = 0, total14dRate = 0, total28dRate = 0, totalPositiveRate = 0;
 
     sortedCampaigns.forEach(c => {
@@ -341,19 +329,9 @@ function CampaignTable({
 
   return (
     <div className="mb-4">
-      {/* Table Header with Title, Refresh, and Last Updated */}
+      {/* Table Header */}
       <div className="flex items-center gap-3 mb-4">
         <h2 className={`text-3xl font-bold text-${titleColor}`}>{title}</h2>
-        {onRefreshTable && (
-          <button
-            onClick={onRefreshTable}
-            disabled={isRefreshing}
-            className="p-1.5 rounded-lg hover:bg-secondary transition-colors disabled:opacity-50"
-            title="Refresh this table"
-          >
-            <RefreshCw size={16} className={`text-gray-400 hover:text-white ${isRefreshing ? 'animate-spin' : ''}`} />
-          </button>
-        )}
         {lastRefreshed && (
           <span className="text-[11px] text-gray-500 ml-auto pl-4 font-light tracking-wide">
             · {lastRefreshed}
@@ -385,7 +363,7 @@ function CampaignTable({
                       <span className="text-gray-400 text-[10px]">Name</span>
                     </div>
                   </div>
-                  {/* Resize handle - drag to resize column */}
+                  {/* Resize handle */}
                   <div
                     className="absolute right-0 top-0 bottom-0 w-4 cursor-col-resize flex items-center justify-center group select-none"
                     onMouseDown={handleResizeStart}
@@ -426,7 +404,6 @@ function CampaignTable({
                   const suggestion = campaign.suggestion || {};
                   const periods = campaign.periods || {};
 
-                  // Format created date
                   const createdDate = campaign.created_at
                     ? new Date(campaign.created_at).toLocaleDateString('en-US', {
                         month: 'short',
@@ -445,21 +422,11 @@ function CampaignTable({
                         <button
                           onClick={() => onToggleHide(campaign.id)}
                           disabled={hidingId === campaign.id}
-                          className={`
-                            w-6 h-6 flex items-center justify-center rounded
-                            transition-all duration-200
-                            ${showUnhide
-                              ? 'text-gray-400 hover:text-success hover:bg-success/20'
-                              : 'text-gray-700 opacity-0 group-hover:opacity-100 hover:text-danger hover:bg-danger/20'
-                            }
-                            disabled:opacity-50 disabled:cursor-not-allowed
-                          `}
-                          title={showUnhide ? 'Unhide campaign' : 'Hide campaign'}
+                          className="w-6 h-6 flex items-center justify-center rounded transition-all duration-200 text-gray-700 opacity-0 group-hover:opacity-100 hover:text-danger hover:bg-danger/20 disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Hide campaign"
                         >
                           {hidingId === campaign.id ? (
                             <LoadingSpinner size="sm" />
-                          ) : showUnhide ? (
-                            <Plus size={14} />
                           ) : (
                             <Minus size={14} />
                           )}
@@ -568,9 +535,7 @@ function CampaignTable({
               {/* Summary Row */}
               {summary && sortedCampaigns.length > 0 && (
                 <tr className="border-t-2 border-gray-600 bg-secondary/50 font-semibold">
-                  {/* Empty cell for hide button */}
                   <td className="px-2 py-4"></td>
-                  {/* Summary Label */}
                   <td className="px-3 py-4 text-center" style={{ width: nameColumnWidth }}>
                     <div className="flex flex-col items-center justify-center">
                       <span className="text-accent text-sm font-bold tracking-wide">SUMMARY OF ALL</span>
@@ -579,49 +544,39 @@ function CampaignTable({
                       </span>
                     </div>
                   </td>
-                  {/* Created - skip */}
                   <td className="px-3 py-4"></td>
-                  {/* Status - skip */}
                   <td className="px-3 py-4"></td>
-                  {/* 7D Sent - average */}
                   <td className="px-3 py-4 text-center">
                     <span className="text-gray-300 text-base">
                       {formatNumber(summary.avg7dSent)}
                     </span>
                   </td>
-                  {/* 7D Reply Ratio - average */}
                   <td className="px-3 py-4 text-center">
                     <span className={`text-base font-bold ${getRateColor(summary.avg7dRate)}`}>
                       {formatPercent(summary.avg7dRate)}
                     </span>
                   </td>
-                  {/* 14D Sent - average */}
                   <td className="px-3 py-4 text-center">
                     <span className="text-gray-300 text-base">
                       {formatNumber(summary.avg14dSent)}
                     </span>
                   </td>
-                  {/* 14D Reply Ratio - average */}
                   <td className="px-3 py-4 text-center">
                     <span className={`text-base font-bold ${getRateColor(summary.avg14dRate)}`}>
                       {formatPercent(summary.avg14dRate)}
                     </span>
                   </td>
-                  {/* 28D Reply Ratio - average */}
                   <td className="px-3 py-4 text-center">
                     <span className={`text-base font-bold ${getRateColor(summary.avg28dRate)}`}>
                       {formatPercent(summary.avg28dRate)}
                     </span>
                   </td>
-                  {/* Positive Reply Ratio - average */}
                   <td className="px-3 py-4 text-center">
                     <span className={`text-base font-bold ${getPositiveRateColor(summary.avgPositiveRate)}`}>
                       {formatPercent(summary.avgPositiveRate)}
                     </span>
                   </td>
-                  {/* Suggestions - skip */}
                   <td className="px-3 py-4"></td>
-                  {/* Warnings - skip */}
                   <td className="px-3 py-4"></td>
                 </tr>
               )}
@@ -629,23 +584,13 @@ function CampaignTable({
           </table>
         </div>
       </div>
-
     </div>
   );
 }
 
-export default function CampaignHealth() {
-  // State
-  const [search, setSearch] = useState('');
-  const [clientFilter, setClientFilter] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
-  const [onlySuggestions, setOnlySuggestions] = useState(false);
-  const [showHidden, setShowHidden] = useState(false);
+export default function DomainHealth() {
   const [hidingId, setHidingId] = useState(null);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
-  const [refreshingMain, setRefreshingMain] = useState(false);
-  const [refreshingFollowUp, setRefreshingFollowUp] = useState(false);
-  const [lastRefreshTime, setLastRefreshTime] = useState(null);
 
   // API calls
   const {
@@ -653,28 +598,15 @@ export default function CampaignHealth() {
     loading: campaignsLoading,
     error: campaignsError,
     execute: refreshCampaigns,
-  } = useApi(() => api.getCampaigns({ only_suggestions: onlySuggestions }), [onlySuggestions]);
+  } = useApi(() => api.getCampaigns({}), []);
 
   // Track when data has loaded at least once
   if (campaignsData && !hasLoadedOnce) {
     setHasLoadedOnce(true);
   }
 
-  // Fetch hidden campaigns
-  const {
-    data: hiddenCampaignsData,
-    loading: hiddenLoading,
-    execute: refreshHiddenCampaigns,
-  } = useApi(() => api.getHiddenCampaigns(), []);
+  const { data: syncStatus } = useApi(api.getSyncStatus, []);
 
-  const { data: overviewData, execute: refreshOverview } = useApi(
-    () => api.getOverview(7),
-    []
-  );
-
-  const { data: syncStatus, execute: refreshSyncStatus } = useApi(api.getSyncStatus, []);
-
-  const { execute: triggerSync, loading: syncing } = useMutation(api.triggerSync);
   const { execute: updateStatus, loading: updatingStatus } = useMutation(
     (campaignId, status) => api.updateCampaignStatus(campaignId, status)
   );
@@ -682,44 +614,6 @@ export default function CampaignHealth() {
 
   // Determine loading states
   const isInitialLoading = campaignsLoading && !hasLoadedOnce;
-  const isSyncing = syncing || (campaignsLoading && hasLoadedOnce);
-
-  // Refresh all data (full sync)
-  const handleRefresh = async () => {
-    try {
-      await triggerSync();
-      await Promise.all([refreshCampaigns(), refreshOverview(), refreshSyncStatus(), refreshHiddenCampaigns()]);
-      setLastRefreshTime(new Date());
-    } catch (err) {
-      console.error('Sync failed:', err);
-    }
-  };
-
-  // Refresh just the main campaigns table (quick refresh without full sync)
-  const handleRefreshMainTable = async () => {
-    setRefreshingMain(true);
-    try {
-      await refreshCampaigns();
-      setLastRefreshTime(new Date());
-    } catch (err) {
-      console.error('Refresh failed:', err);
-    } finally {
-      setRefreshingMain(false);
-    }
-  };
-
-  // Refresh just the follow-up campaigns table
-  const handleRefreshFollowUpTable = async () => {
-    setRefreshingFollowUp(true);
-    try {
-      await refreshCampaigns();
-      setLastRefreshTime(new Date());
-    } catch (err) {
-      console.error('Refresh failed:', err);
-    } finally {
-      setRefreshingFollowUp(false);
-    }
-  };
 
   // Change status
   const handleStatusChange = async (campaignId, newStatus) => {
@@ -736,7 +630,7 @@ export default function CampaignHealth() {
     try {
       setHidingId(campaignId);
       await toggleHidden(campaignId);
-      await Promise.all([refreshCampaigns(), refreshHiddenCampaigns()]);
+      await refreshCampaigns();
     } catch (err) {
       console.error('Failed to toggle hide:', err);
     } finally {
@@ -744,137 +638,69 @@ export default function CampaignHealth() {
     }
   };
 
-  // Filter and separate campaigns
-  const { regularCampaigns, followUpCampaigns } = useMemo(() => {
-    let result = campaignsData?.campaigns || [];
+  // Filter campaigns by provider - only non-followup, non-hidden campaigns
+  const { hypertideCampaigns, googleCampaigns, otherCampaigns } = useMemo(() => {
+    const allCampaigns = campaignsData?.campaigns || [];
+    const regularCampaigns = allCampaigns.filter((c) => !isFollowUpCampaign(c));
 
-    // Apply search filter
-    if (search) {
-      const searchLower = search.toLowerCase();
-      result = result.filter(
-        (c) =>
-          c.name?.toLowerCase().includes(searchLower) ||
-          c.client_name?.toLowerCase().includes(searchLower)
-      );
-    }
-
-    // Apply client filter
-    if (clientFilter) {
-      result = result.filter((c) => String(c.client_id) === clientFilter);
-    }
-
-    // Apply status filter
-    if (statusFilter) {
-      result = result.filter((c) => c.status === statusFilter);
-    }
-
-    // Separate into regular and follow-up campaigns
-    const regular = result.filter((c) => !isFollowUpCampaign(c));
-    const followUp = result.filter((c) => isFollowUpCampaign(c));
-
-    return { regularCampaigns: regular, followUpCampaigns: followUp };
-  }, [campaignsData, search, clientFilter, statusFilter]);
-
-  // Filter hidden campaigns
-  const { hiddenRegularCampaigns, hiddenFollowUpCampaigns } = useMemo(() => {
-    const hidden = hiddenCampaignsData?.campaigns || [];
     return {
-      hiddenRegularCampaigns: hidden.filter((c) => !isFollowUpCampaign(c)),
-      hiddenFollowUpCampaigns: hidden.filter((c) => isFollowUpCampaign(c)),
+      hypertideCampaigns: regularCampaigns.filter((c) => getCampaignProvider(c) === 'HYPERTIDE'),
+      googleCampaigns: regularCampaigns.filter((c) => getCampaignProvider(c) === 'GOOGLE'),
+      otherCampaigns: regularCampaigns.filter((c) => getCampaignProvider(c) === 'OTHER'),
     };
-  }, [hiddenCampaignsData]);
-
-  const totalHidden = (hiddenCampaignsData?.campaigns || []).length;
-
-  // Get unique clients for filter dropdown
-  const clients = useMemo(() => {
-    const clientMap = new Map();
-    (campaignsData?.campaigns || []).forEach((c) => {
-      if (c.client_id && c.client_name) {
-        clientMap.set(c.client_id, { id: c.client_id, name: c.client_name });
-      }
-    });
-    return Array.from(clientMap.values());
   }, [campaignsData]);
 
-  // Stats calculations - check for both STARTED and ACTIVE statuses
+  // Stats calculations
   const stats = useMemo(() => {
-    const campaigns = campaignsData?.campaigns || [];
-    const regular = campaigns.filter((c) => !isFollowUpCampaign(c));
     return {
-      total: regular.length,
-      active: regular.filter((c) => c.status === 'STARTED' || c.status === 'ACTIVE').length,
-      withSuggestions: regular.filter(
-        (c) => c.suggestion?.color && c.suggestion.color !== 'green'
-      ).length,
-      lowData: regular.filter((c) => (c.stats?.sent_count || 0) < 200).length,
-      followUps: campaigns.filter((c) => isFollowUpCampaign(c)).length,
+      hypertideTotal: hypertideCampaigns.length,
+      hypertideActive: hypertideCampaigns.filter((c) => c.status === 'STARTED' || c.status === 'ACTIVE').length,
+      googleTotal: googleCampaigns.length,
+      googleActive: googleCampaigns.filter((c) => c.status === 'STARTED' || c.status === 'ACTIVE').length,
+      otherTotal: otherCampaigns.length,
     };
-  }, [campaignsData]);
+  }, [hypertideCampaigns, googleCampaigns, otherCampaigns]);
 
   // Format last refresh time
-  const formattedLastRefresh = lastRefreshTime ? timeAgo(lastRefreshTime.toISOString()) :
-    (syncStatus?.last_sync?.completed_at ? timeAgo(syncStatus.last_sync.completed_at) : null);
+  const formattedLastRefresh = syncStatus?.last_sync?.completed_at
+    ? timeAgo(syncStatus.last_sync.completed_at)
+    : null;
 
   return (
     <div>
-      {/* Syncing Banner - shows at top when refreshing */}
-      <SyncingBanner isVisible={isSyncing} />
-
       {/* Header */}
       <PageHeader
-        title="Campaign Health"
-        subtitle="Monitor and manage campaign performance"
+        title="Domain Health"
+        subtitle="Email provider performance comparison"
       />
 
       {/* Stats Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-4 mb-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         <StatsCard
-          title="Main Campaigns"
-          value={stats.total}
-          subtitle="total tracked"
+          title="HYPERTIDE Campaigns"
+          value={stats.hypertideTotal}
+          subtitle={`${stats.hypertideActive} active`}
+          icon={Globe}
+        />
+        <StatsCard
+          title="Google Campaigns"
+          value={stats.googleTotal}
+          subtitle={`${stats.googleActive} active`}
+          icon={Globe}
+        />
+        <StatsCard
+          title="Other Providers"
+          value={stats.otherTotal}
+          subtitle="unclassified"
           icon={BarChart3}
         />
         <StatsCard
-          title="Active"
-          value={stats.active}
-          subtitle="currently running"
-          icon={Activity}
-        />
-        <StatsCard
-          title="Need Attention"
-          value={stats.withSuggestions}
-          subtitle="with suggestions"
-          icon={AlertTriangle}
-        />
-        <StatsCard
-          title="Low Data"
-          value={stats.lowData}
-          subtitle="< 200 total sends"
-          icon={Clock}
-        />
-        <StatsCard
-          title="Follow-ups"
-          value={stats.followUps}
-          subtitle="subsequences"
+          title="Total Tracked"
+          value={stats.hypertideTotal + stats.googleTotal + stats.otherTotal}
+          subtitle="main campaigns"
           icon={Activity}
         />
       </div>
-
-      {/* Filter Bar */}
-      <FilterBar
-        search={search}
-        onSearchChange={setSearch}
-        clients={clients}
-        clientFilter={clientFilter}
-        onClientFilterChange={setClientFilter}
-        statusFilter={statusFilter}
-        onStatusFilterChange={setStatusFilter}
-        onlySuggestions={onlySuggestions}
-        onOnlySuggestionsChange={setOnlySuggestions}
-        onRefresh={handleRefresh}
-        isLoading={isSyncing}
-      />
 
       {/* Error State */}
       {campaignsError && (
@@ -883,96 +709,75 @@ export default function CampaignHealth() {
         </div>
       )}
 
-      {/* Main Campaigns Table */}
-      <CampaignTable
-        campaigns={regularCampaigns}
-        isInitialLoading={isInitialLoading}
-        onStatusChange={handleStatusChange}
-        onToggleHide={handleToggleHide}
-        updatingStatus={updatingStatus}
-        hidingId={hidingId}
-        emptyMessage="No main campaigns found. Click 'Sync Campaigns' to fetch from Smartlead."
-        title="MAIN CAMPAIGNS"
-        titleColor="accent"
-        onRefreshTable={handleRefreshMainTable}
-        isRefreshing={refreshingMain}
-        lastRefreshed={formattedLastRefresh}
-      />
+      {/* Provider Breakdown Section */}
+      <div className="mb-6">
+        <h2 className="text-2xl font-bold text-white mb-2">PROVIDER BREAKDOWN</h2>
+        <p className="text-gray-500 text-sm">Performance comparison between email providers</p>
+      </div>
 
-      {/* Divider */}
-      <div className="border-t-4 border-gray-700 my-10"></div>
+      {/* HYPERTIDE Campaigns */}
+      {hypertideCampaigns.length > 0 && (
+        <ProviderCampaignTable
+          campaigns={hypertideCampaigns}
+          isInitialLoading={isInitialLoading}
+          onStatusChange={handleStatusChange}
+          onToggleHide={handleToggleHide}
+          updatingStatus={updatingStatus}
+          hidingId={hidingId}
+          emptyMessage="No HYPERTIDE campaigns found."
+          title="HYPERTIDE"
+          titleColor="accent"
+          lastRefreshed={formattedLastRefresh}
+        />
+      )}
 
-      {/* Follow-up / Subsequences Section */}
-      <CampaignTable
-        campaigns={followUpCampaigns}
-        isInitialLoading={isInitialLoading}
-        onStatusChange={handleStatusChange}
-        onToggleHide={handleToggleHide}
-        updatingStatus={updatingStatus}
-        hidingId={hidingId}
-        emptyMessage="No follow-up campaigns found."
-        title="FOLLOW-UP CAMPAIGNS"
-        titleColor="accent"
-        onRefreshTable={handleRefreshFollowUpTable}
-        isRefreshing={refreshingFollowUp}
-        lastRefreshed={formattedLastRefresh}
-      />
-
-      {/* Hidden Campaigns Section */}
-      {totalHidden > 0 && (
+      {/* Google Campaigns */}
+      {googleCampaigns.length > 0 && (
         <>
-          <div className="border-t-2 border-gray-700 my-10"></div>
-
-          <div className="mb-4">
-            <button
-              onClick={() => setShowHidden(!showHidden)}
-              className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors"
-            >
-              {showHidden ? <EyeOff size={20} /> : <Eye size={20} />}
-              <span className="text-lg font-medium">
-                {showHidden ? 'Hide' : 'Show'} Hidden Campaigns ({totalHidden})
-              </span>
-            </button>
-          </div>
-
-          {showHidden && (
-            <>
-              {/* Hidden Main Campaigns */}
-              {hiddenRegularCampaigns.length > 0 && (
-                <CampaignTable
-                  campaigns={hiddenRegularCampaigns}
-                  isInitialLoading={hiddenLoading && hiddenRegularCampaigns.length === 0}
-                  onStatusChange={handleStatusChange}
-                  onToggleHide={handleToggleHide}
-                  updatingStatus={updatingStatus}
-                  hidingId={hidingId}
-                  emptyMessage="No hidden main campaigns."
-                  showUnhide={true}
-                  title="Hidden Main Campaigns"
-                  titleColor="gray-400"
-                  lastRefreshed={formattedLastRefresh}
-                />
-              )}
-
-              {/* Hidden Follow-up Campaigns */}
-              {hiddenFollowUpCampaigns.length > 0 && (
-                <CampaignTable
-                  campaigns={hiddenFollowUpCampaigns}
-                  isInitialLoading={hiddenLoading && hiddenFollowUpCampaigns.length === 0}
-                  onStatusChange={handleStatusChange}
-                  onToggleHide={handleToggleHide}
-                  updatingStatus={updatingStatus}
-                  hidingId={hidingId}
-                  emptyMessage="No hidden follow-up campaigns."
-                  showUnhide={true}
-                  title="Hidden Follow-up Campaigns"
-                  titleColor="gray-400"
-                  lastRefreshed={formattedLastRefresh}
-                />
-              )}
-            </>
-          )}
+          <div className="border-t-2 border-gray-700 my-8"></div>
+          <ProviderCampaignTable
+            campaigns={googleCampaigns}
+            isInitialLoading={isInitialLoading}
+            onStatusChange={handleStatusChange}
+            onToggleHide={handleToggleHide}
+            updatingStatus={updatingStatus}
+            hidingId={hidingId}
+            emptyMessage="No Google campaigns found."
+            title="GOOGLE"
+            titleColor="accent"
+            lastRefreshed={formattedLastRefresh}
+          />
         </>
+      )}
+
+      {/* Other Providers (if any) */}
+      {otherCampaigns.length > 0 && (
+        <>
+          <div className="border-t-2 border-gray-700 my-8"></div>
+          <ProviderCampaignTable
+            campaigns={otherCampaigns}
+            isInitialLoading={isInitialLoading}
+            onStatusChange={handleStatusChange}
+            onToggleHide={handleToggleHide}
+            updatingStatus={updatingStatus}
+            hidingId={hidingId}
+            emptyMessage="No other provider campaigns found."
+            title="OTHER PROVIDERS"
+            titleColor="gray-400"
+            lastRefreshed={formattedLastRefresh}
+          />
+        </>
+      )}
+
+      {/* Empty State */}
+      {hypertideCampaigns.length === 0 && googleCampaigns.length === 0 && otherCampaigns.length === 0 && !isInitialLoading && (
+        <div className="bg-card rounded-lg p-12 text-center">
+          <Globe size={48} className="mx-auto text-gray-600 mb-4" />
+          <h3 className="text-xl font-medium text-white mb-2">No Provider Data Available</h3>
+          <p className="text-gray-500">
+            Campaigns with HYPERTIDE or GOOGLE in their name will appear here for provider comparison.
+          </p>
+        </div>
       )}
     </div>
   );
