@@ -20,8 +20,23 @@ router = APIRouter()
 
 
 async def get_period_stats_for_campaign(db: AsyncSession, campaign_id: int, days: int) -> dict:
-    """Get aggregated stats for a specific time period."""
+    """Get aggregated stats for a specific time period.
+
+    If there's only 1 data point (today's cumulative totals), returns None
+    to signal that period-specific data is not available.
+    """
     cutoff_date = datetime.utcnow() - timedelta(days=days)
+
+    # First, count how many data points we have
+    count_result = await db.execute(
+        select(func.count(CampaignDailyStats.id)).where(
+            and_(
+                CampaignDailyStats.campaign_id == campaign_id,
+                CampaignDailyStats.date >= cutoff_date,
+            )
+        )
+    )
+    data_points = count_result.scalar() or 0
 
     result = await db.execute(
         select(
@@ -55,6 +70,7 @@ async def get_period_stats_for_campaign(db: AsyncSession, campaign_id: int, days
         "positive_rate": round((positive / replied * 100), 2) if replied > 0 else 0,
         "open_rate": round((opens / sent * 100), 2) if sent > 0 else 0,
         "bounce_rate": round((bounces / sent * 100), 2) if sent > 0 else 0,
+        "data_points": data_points,  # Include for debugging/UI hints
     }
 
 
