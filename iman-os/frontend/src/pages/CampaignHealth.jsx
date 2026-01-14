@@ -1,11 +1,10 @@
 import { useState, useMemo } from 'react';
-import { BarChart3, Activity, AlertTriangle, Clock, ChevronDown, Minus, Plus, Eye, EyeOff, RefreshCw } from 'lucide-react';
+import { BarChart3, Activity, AlertTriangle, Clock, ChevronDown, ChevronUp, Minus, Plus, Eye, EyeOff, RefreshCw } from 'lucide-react';
 import { PageHeader } from '../components/layout';
 import {
   StatsCard,
   StatusBadge,
   SuggestionBadge,
-  WarningBadge,
   FilterBar,
   Button,
   LoadingSpinner,
@@ -37,6 +36,27 @@ function SyncingBanner({ isVisible }) {
       <RefreshCw size={18} className="animate-spin" />
       <span className="font-medium">Syncing campaigns...</span>
     </div>
+  );
+}
+
+// Warning Badge with Tooltip
+function WarningBadgeWithTooltip({ text }) {
+  const tooltips = {
+    'Low Quality': 'Reply rate is below 1%. Consider pausing this campaign, reviewing your email copy, or targeting different leads.',
+    'Low Reply Rate': 'This campaign has a low reply rate. Try A/B testing subject lines or adjusting your targeting.',
+    'High Bounce': 'High bounce rate detected. Verify your email list quality and remove invalid addresses.',
+    'Needs Review': 'This campaign needs manual review. Check recent performance metrics.',
+  };
+
+  const tooltip = tooltips[text] || `Warning: ${text}. Review this campaign for potential improvements.`;
+
+  return (
+    <span
+      className="inline-flex px-2 py-0.5 rounded-full text-xs font-medium bg-accent/20 text-accent cursor-help"
+      title={tooltip}
+    >
+      {text}
+    </span>
   );
 }
 
@@ -81,6 +101,26 @@ function StatusDropdown({ status, campaignId, onStatusChange, disabled }) {
   );
 }
 
+// Sortable header component
+function SortableHeader({ label, field, sortField, sortDirection, onSort, align = 'left' }) {
+  const isActive = sortField === field;
+  const alignClass = align === 'right' ? 'text-right justify-end' : 'text-left';
+
+  return (
+    <th
+      className={`px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider cursor-pointer hover:text-white transition-colors ${alignClass}`}
+      onClick={() => onSort(field)}
+    >
+      <div className={`flex items-center gap-1 ${align === 'right' ? 'justify-end' : ''}`}>
+        <span>{label}</span>
+        {isActive && (
+          sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
+        )}
+      </div>
+    </th>
+  );
+}
+
 // Reusable Campaign Table component
 function CampaignTable({
   campaigns,
@@ -93,208 +133,307 @@ function CampaignTable({
   hidingId,
   emptyMessage = "No campaigns found.",
   showUnhide = false,
+  onRefreshTable,
+  isRefreshing = false,
+  title,
+  titleColor = 'white',
 }) {
+  const [sortField, setSortField] = useState(null);
+  const [sortDirection, setSortDirection] = useState('desc');
+
+  const handleSort = (field) => {
+    if (sortField === field) {
+      setSortDirection(sortDirection === 'asc' ? 'desc' : 'asc');
+    } else {
+      setSortField(field);
+      setSortDirection('desc');
+    }
+  };
+
+  // Sort campaigns
+  const sortedCampaigns = useMemo(() => {
+    if (!sortField) return campaigns;
+
+    return [...campaigns].sort((a, b) => {
+      let aVal, bVal;
+
+      switch (sortField) {
+        case 'name':
+          aVal = a.name?.toLowerCase() || '';
+          bVal = b.name?.toLowerCase() || '';
+          break;
+        case 'created':
+          aVal = new Date(a.created_at || 0).getTime();
+          bVal = new Date(b.created_at || 0).getTime();
+          break;
+        case 'status':
+          aVal = a.status || '';
+          bVal = b.status || '';
+          break;
+        case 'suggestion':
+          aVal = a.suggestion?.suggestion || '';
+          bVal = b.suggestion?.suggestion || '';
+          break;
+        case '7d_sent':
+          aVal = a.periods?.['7_days']?.sent_count || a.stats?.sent_count || 0;
+          bVal = b.periods?.['7_days']?.sent_count || b.stats?.sent_count || 0;
+          break;
+        case '7d_rate':
+          aVal = a.periods?.['7_days']?.reply_rate || a.stats?.reply_rate || 0;
+          bVal = b.periods?.['7_days']?.reply_rate || b.stats?.reply_rate || 0;
+          break;
+        case '14d_sent':
+          aVal = a.periods?.['14_days']?.sent_count || 0;
+          bVal = b.periods?.['14_days']?.sent_count || 0;
+          break;
+        case '14d_rate':
+          aVal = a.periods?.['14_days']?.reply_rate || 0;
+          bVal = b.periods?.['14_days']?.reply_rate || 0;
+          break;
+        case '28d_rate':
+          aVal = a.periods?.['28_days']?.reply_rate || 0;
+          bVal = b.periods?.['28_days']?.reply_rate || 0;
+          break;
+        case 'positive':
+          aVal = a.stats?.positive_rate || 0;
+          bVal = b.stats?.positive_rate || 0;
+          break;
+        default:
+          return 0;
+      }
+
+      if (typeof aVal === 'string') {
+        return sortDirection === 'asc'
+          ? aVal.localeCompare(bVal)
+          : bVal.localeCompare(aVal);
+      }
+      return sortDirection === 'asc' ? aVal - bVal : bVal - aVal;
+    });
+  }, [campaigns, sortField, sortDirection]);
+
   // Only show full loading spinner on initial load (no data yet)
   const showLoadingSpinner = isInitialLoading && campaigns.length === 0;
 
   return (
-    <div className="bg-card rounded-lg overflow-hidden">
-      <div className="overflow-x-auto">
-        <table className="w-full">
-          <thead className="bg-secondary">
-            <tr>
-              <th className="w-8 px-2 py-3"></th>
-              <th className="text-left px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">Campaign</th>
-              <th className="text-left px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">Created</th>
-              <th className="text-left px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">Status</th>
-              <th className="text-left px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">Suggested</th>
-              <th className="text-right px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">7D Sent</th>
-              <th className="text-right px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">7D Rate</th>
-              <th className="text-right px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">14D Sent</th>
-              <th className="text-right px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">14D Rate</th>
-              <th className="text-right px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">28D Rate</th>
-              <th className="text-right px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">Pos Rate</th>
-              <th className="text-left px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">Warnings</th>
-              <th className="text-left px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">Last Sync</th>
-              <th className="text-right px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">Action</th>
-            </tr>
-          </thead>
-          <tbody>
-            {showLoadingSpinner ? (
+    <div className="mb-4">
+      {/* Table Header with Title and Refresh */}
+      <div className="flex items-center justify-between mb-4">
+        <h2 className={`text-3xl font-bold text-${titleColor}`}>{title}</h2>
+        {onRefreshTable && (
+          <button
+            onClick={onRefreshTable}
+            disabled={isRefreshing}
+            className="p-2 rounded-lg hover:bg-secondary transition-colors disabled:opacity-50"
+            title="Refresh this table"
+          >
+            <RefreshCw size={18} className={`text-gray-400 hover:text-white ${isRefreshing ? 'animate-spin' : ''}`} />
+          </button>
+        )}
+      </div>
+
+      <div className="bg-card rounded-lg overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full">
+            <thead className="bg-secondary">
               <tr>
-                <td colSpan="14" className="px-4 py-12 text-center">
-                  <LoadingSpinner size="lg" />
-                </td>
+                <th className="w-8 px-2 py-3"></th>
+                <SortableHeader label="Campaign" field="name" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} />
+                <SortableHeader label="Created" field="created" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} />
+                <SortableHeader label="Status" field="status" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} />
+                <SortableHeader label="Suggested" field="suggestion" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} />
+                <SortableHeader label="7D Sent" field="7d_sent" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="right" />
+                <SortableHeader label="7D Reply" field="7d_rate" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="right" />
+                <SortableHeader label="14D Sent" field="14d_sent" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="right" />
+                <SortableHeader label="14D Reply" field="14d_rate" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="right" />
+                <SortableHeader label="28D Reply" field="28d_rate" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="right" />
+                <SortableHeader label="Positive" field="positive" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="right" />
+                <th className="text-left px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">Warnings</th>
+                <th className="text-left px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">Last Sync</th>
+                <th className="text-right px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">Action</th>
               </tr>
-            ) : campaigns.length === 0 ? (
-              <tr>
-                <td colSpan="14" className="px-4 py-12 text-center text-gray-500">
-                  {emptyMessage}
-                </td>
-              </tr>
-            ) : (
-              campaigns.map((campaign) => {
-                const stats = campaign.stats || {};
-                const suggestion = campaign.suggestion || {};
-                const periods = campaign.periods || {};
+            </thead>
+            <tbody>
+              {showLoadingSpinner ? (
+                <tr>
+                  <td colSpan="14" className="px-4 py-12 text-center">
+                    <LoadingSpinner size="lg" />
+                  </td>
+                </tr>
+              ) : sortedCampaigns.length === 0 ? (
+                <tr>
+                  <td colSpan="14" className="px-4 py-12 text-center text-gray-500">
+                    {emptyMessage}
+                  </td>
+                </tr>
+              ) : (
+                sortedCampaigns.map((campaign) => {
+                  const stats = campaign.stats || {};
+                  const suggestion = campaign.suggestion || {};
+                  const periods = campaign.periods || {};
 
-                // Format created date
-                const createdDate = campaign.created_at
-                  ? new Date(campaign.created_at).toLocaleDateString('en-US', {
-                      month: 'short',
-                      day: 'numeric',
-                      year: 'numeric'
-                    })
-                  : '-';
+                  // Format created date
+                  const createdDate = campaign.created_at
+                    ? new Date(campaign.created_at).toLocaleDateString('en-US', {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric'
+                      })
+                    : '-';
 
-                return (
-                  <tr
-                    key={campaign.id}
-                    className="border-t border-gray-800 hover:bg-secondary/30 transition-colors group"
-                  >
-                    {/* Hide/Unhide Button */}
-                    <td className="px-2 py-3">
-                      <button
-                        onClick={() => onToggleHide(campaign.id)}
-                        disabled={hidingId === campaign.id}
-                        className={`
-                          w-6 h-6 flex items-center justify-center rounded
-                          transition-all duration-200
-                          ${showUnhide
-                            ? 'text-gray-400 hover:text-success hover:bg-success/20'
-                            : 'text-gray-700 opacity-0 group-hover:opacity-100 hover:text-danger hover:bg-danger/20'
-                          }
-                          disabled:opacity-50 disabled:cursor-not-allowed
-                        `}
-                        title={showUnhide ? 'Unhide campaign' : 'Hide campaign'}
-                      >
-                        {hidingId === campaign.id ? (
-                          <LoadingSpinner size="sm" />
-                        ) : showUnhide ? (
-                          <Plus size={14} />
-                        ) : (
-                          <Minus size={14} />
-                        )}
-                      </button>
-                    </td>
+                  return (
+                    <tr
+                      key={campaign.id}
+                      className="border-t border-gray-800 hover:bg-secondary/30 transition-colors group"
+                    >
+                      {/* Hide/Unhide Button */}
+                      <td className="px-2 py-3">
+                        <button
+                          onClick={() => onToggleHide(campaign.id)}
+                          disabled={hidingId === campaign.id}
+                          className={`
+                            w-6 h-6 flex items-center justify-center rounded
+                            transition-all duration-200
+                            ${showUnhide
+                              ? 'text-gray-400 hover:text-success hover:bg-success/20'
+                              : 'text-gray-700 opacity-0 group-hover:opacity-100 hover:text-danger hover:bg-danger/20'
+                            }
+                            disabled:opacity-50 disabled:cursor-not-allowed
+                          `}
+                          title={showUnhide ? 'Unhide campaign' : 'Hide campaign'}
+                        >
+                          {hidingId === campaign.id ? (
+                            <LoadingSpinner size="sm" />
+                          ) : showUnhide ? (
+                            <Plus size={14} />
+                          ) : (
+                            <Minus size={14} />
+                          )}
+                        </button>
+                      </td>
 
-                    {/* Campaign Name */}
-                    <td className="px-4 py-3">
-                      <div className="font-medium text-white text-sm truncate max-w-[200px]" title={campaign.name}>
-                        {campaign.name}
-                      </div>
-                    </td>
+                      {/* Campaign Name */}
+                      <td className="px-4 py-3">
+                        <div className="font-medium text-white text-sm truncate max-w-[200px]" title={campaign.name}>
+                          {campaign.name}
+                        </div>
+                      </td>
 
-                    {/* Created Date */}
-                    <td className="px-4 py-3">
-                      <span className="text-gray-400 text-sm">
-                        {createdDate}
-                      </span>
-                    </td>
+                      {/* Created Date */}
+                      <td className="px-4 py-3">
+                        <span className="text-gray-400 text-sm">
+                          {createdDate}
+                        </span>
+                      </td>
 
-                    {/* Status with dropdown */}
-                    <td className="px-4 py-3">
-                      <StatusDropdown
-                        status={campaign.status}
-                        campaignId={campaign.id}
-                        onStatusChange={onStatusChange}
-                        disabled={updatingStatus}
-                      />
-                    </td>
-
-                    {/* Suggestion */}
-                    <td className="px-4 py-3">
-                      {suggestion.suggestion ? (
-                        <SuggestionBadge
-                          suggestion={suggestion.suggestion}
-                          color={suggestion.color}
+                      {/* Status with dropdown */}
+                      <td className="px-4 py-3">
+                        <StatusDropdown
+                          status={campaign.status}
+                          campaignId={campaign.id}
+                          onStatusChange={onStatusChange}
+                          disabled={updatingStatus}
                         />
-                      ) : (
-                        <span className="text-gray-600">-</span>
-                      )}
-                    </td>
+                      </td>
 
-                    {/* 7D Sent */}
-                    <td className="px-4 py-3 text-right">
-                      <span className="text-white text-sm">
-                        {formatNumber(periods['7_days']?.sent_count || stats.sent_count || 0)}
-                      </span>
-                    </td>
-
-                    {/* 7D Rate */}
-                    <td className="px-4 py-3 text-right">
-                      <span className={`text-sm font-medium ${getRateColor(periods['7_days']?.reply_rate || stats.reply_rate || 0)}`}>
-                        {formatPercent(periods['7_days']?.reply_rate || stats.reply_rate || 0)}
-                      </span>
-                    </td>
-
-                    {/* 14D Sent */}
-                    <td className="px-4 py-3 text-right">
-                      <span className="text-white text-sm">
-                        {formatNumber(periods['14_days']?.sent_count || 0)}
-                      </span>
-                    </td>
-
-                    {/* 14D Rate */}
-                    <td className="px-4 py-3 text-right">
-                      <span className={`text-sm font-medium ${getRateColor(periods['14_days']?.reply_rate || 0)}`}>
-                        {formatPercent(periods['14_days']?.reply_rate || 0)}
-                      </span>
-                    </td>
-
-                    {/* 28D Rate */}
-                    <td className="px-4 py-3 text-right">
-                      <span className={`text-sm font-medium ${getRateColor(periods['28_days']?.reply_rate || 0)}`}>
-                        {formatPercent(periods['28_days']?.reply_rate || 0)}
-                      </span>
-                    </td>
-
-                    {/* Positive Rate */}
-                    <td className="px-4 py-3 text-right">
-                      <span className="text-gray-400 text-sm">
-                        {formatPercent(stats.positive_rate || 0)}
-                      </span>
-                    </td>
-
-                    {/* Warnings */}
-                    <td className="px-4 py-3">
-                      <div className="flex flex-wrap gap-1">
-                        {campaign.warnings?.length > 0 ? (
-                          campaign.warnings.map((warning, i) => (
-                            <WarningBadge key={i} text={warning} />
-                          ))
+                      {/* Suggestion */}
+                      <td className="px-4 py-3">
+                        {suggestion.suggestion ? (
+                          <SuggestionBadge
+                            suggestion={suggestion.suggestion}
+                            color={suggestion.color}
+                          />
                         ) : (
                           <span className="text-gray-600">-</span>
                         )}
-                      </div>
-                    </td>
+                      </td>
 
-                    {/* Last Sync */}
-                    <td className="px-4 py-3">
-                      <span className="text-gray-500 text-sm">
-                        {timeAgo(campaign.last_synced_at)}
-                      </span>
-                    </td>
+                      {/* 7D Sent */}
+                      <td className="px-4 py-3 text-right">
+                        <span className="text-white text-sm">
+                          {formatNumber(periods['7_days']?.sent_count || stats.sent_count || 0)}
+                        </span>
+                      </td>
 
-                    {/* Action */}
-                    <td className="px-4 py-3 text-right">
-                      {suggestion.color && suggestion.color !== 'green' && suggestion.color !== 'gray' && (
-                        <Button
-                          size="sm"
-                          variant={suggestion.color === 'red' ? 'danger' : 'secondary'}
-                          onClick={() => onApply(campaign.id, suggestion.suggestion === 'KILL' ? 'STOP' : 'PAUSE')}
-                          disabled={applying}
-                        >
-                          + Apply
-                        </Button>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })
-            )}
-          </tbody>
-        </table>
+                      {/* 7D Reply */}
+                      <td className="px-4 py-3 text-right">
+                        <span className={`text-sm font-medium ${getRateColor(periods['7_days']?.reply_rate || stats.reply_rate || 0)}`}>
+                          {formatPercent(periods['7_days']?.reply_rate || stats.reply_rate || 0)}
+                        </span>
+                      </td>
+
+                      {/* 14D Sent */}
+                      <td className="px-4 py-3 text-right">
+                        <span className="text-white text-sm">
+                          {formatNumber(periods['14_days']?.sent_count || 0)}
+                        </span>
+                      </td>
+
+                      {/* 14D Reply */}
+                      <td className="px-4 py-3 text-right">
+                        <span className={`text-sm font-medium ${getRateColor(periods['14_days']?.reply_rate || 0)}`}>
+                          {formatPercent(periods['14_days']?.reply_rate || 0)}
+                        </span>
+                      </td>
+
+                      {/* 28D Reply */}
+                      <td className="px-4 py-3 text-right">
+                        <span className={`text-sm font-medium ${getRateColor(periods['28_days']?.reply_rate || 0)}`}>
+                          {formatPercent(periods['28_days']?.reply_rate || 0)}
+                        </span>
+                      </td>
+
+                      {/* Positive Rate */}
+                      <td className="px-4 py-3 text-right">
+                        <span className="text-gray-400 text-sm">
+                          {formatPercent(stats.positive_rate || 0)}
+                        </span>
+                      </td>
+
+                      {/* Warnings */}
+                      <td className="px-4 py-3">
+                        <div className="flex flex-wrap gap-1">
+                          {campaign.warnings?.length > 0 ? (
+                            campaign.warnings.map((warning, i) => (
+                              <WarningBadgeWithTooltip key={i} text={warning} />
+                            ))
+                          ) : (
+                            <span className="text-gray-600">-</span>
+                          )}
+                        </div>
+                      </td>
+
+                      {/* Last Sync */}
+                      <td className="px-4 py-3">
+                        <span className="text-gray-500 text-sm">
+                          {timeAgo(campaign.last_synced_at)}
+                        </span>
+                      </td>
+
+                      {/* Action */}
+                      <td className="px-4 py-3 text-right">
+                        {suggestion.color && suggestion.color !== 'green' && suggestion.color !== 'gray' && (
+                          <Button
+                            size="sm"
+                            variant={suggestion.color === 'red' ? 'danger' : 'secondary'}
+                            onClick={() => onApply(campaign.id, suggestion.suggestion === 'KILL' ? 'STOP' : 'PAUSE')}
+                            disabled={applying}
+                          >
+                            + Apply
+                          </Button>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })
+              )}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      {/* Footer info */}
+      <div className="mt-2 text-sm text-gray-500 text-right">
+        Showing {sortedCampaigns.length} campaigns
       </div>
     </div>
   );
@@ -309,6 +448,8 @@ export default function CampaignHealth() {
   const [showHidden, setShowHidden] = useState(false);
   const [hidingId, setHidingId] = useState(null);
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
+  const [refreshingMain, setRefreshingMain] = useState(false);
+  const [refreshingFollowUp, setRefreshingFollowUp] = useState(false);
 
   // API calls
   const {
@@ -348,7 +489,7 @@ export default function CampaignHealth() {
   const isInitialLoading = campaignsLoading && !hasLoadedOnce;
   const isSyncing = syncing || (campaignsLoading && hasLoadedOnce);
 
-  // Refresh all data
+  // Refresh all data (full sync)
   const handleRefresh = async () => {
     try {
       await triggerSync();
@@ -358,9 +499,28 @@ export default function CampaignHealth() {
     }
   };
 
-  // Run analytics (same as refresh for now)
-  const handleRunAnalytics = async () => {
-    await handleRefresh();
+  // Refresh just the main campaigns table (quick refresh without full sync)
+  const handleRefreshMainTable = async () => {
+    setRefreshingMain(true);
+    try {
+      await refreshCampaigns();
+    } catch (err) {
+      console.error('Refresh failed:', err);
+    } finally {
+      setRefreshingMain(false);
+    }
+  };
+
+  // Refresh just the follow-up campaigns table
+  const handleRefreshFollowUpTable = async () => {
+    setRefreshingFollowUp(true);
+    try {
+      await refreshCampaigns();
+    } catch (err) {
+      console.error('Refresh failed:', err);
+    } finally {
+      setRefreshingFollowUp(false);
+    }
   };
 
   // Apply suggestion
@@ -449,13 +609,13 @@ export default function CampaignHealth() {
     return Array.from(clientMap.values());
   }, [campaignsData]);
 
-  // Stats calculations
+  // Stats calculations - check for both STARTED and ACTIVE statuses
   const stats = useMemo(() => {
     const campaigns = campaignsData?.campaigns || [];
     const regular = campaigns.filter((c) => !isFollowUpCampaign(c));
     return {
       total: regular.length,
-      active: regular.filter((c) => c.status === 'STARTED').length,
+      active: regular.filter((c) => c.status === 'STARTED' || c.status === 'ACTIVE').length,
       withSuggestions: regular.filter(
         (c) => c.suggestion?.color && c.suggestion.color !== 'green'
       ).length,
@@ -480,6 +640,7 @@ export default function CampaignHealth() {
         <StatsCard
           title="Main Campaigns"
           value={stats.total}
+          subtitle="total tracked"
           icon={BarChart3}
         />
         <StatsCard
@@ -489,15 +650,15 @@ export default function CampaignHealth() {
           icon={Activity}
         />
         <StatsCard
-          title="With Suggestions"
+          title="Need Attention"
           value={stats.withSuggestions}
-          subtitle="need attention"
+          subtitle="with suggestions"
           icon={AlertTriangle}
         />
         <StatsCard
-          title="Under 200 Sends"
+          title="Low Data"
           value={stats.lowData}
-          subtitle="low data"
+          subtitle="< 200 total sends"
           icon={Clock}
         />
         <StatsCard
@@ -508,7 +669,7 @@ export default function CampaignHealth() {
         />
       </div>
 
-      {/* Filter Bar */}
+      {/* Filter Bar - only Sync button, removed redundant Run Analytics */}
       <FilterBar
         search={search}
         onSearchChange={setSearch}
@@ -521,7 +682,6 @@ export default function CampaignHealth() {
         onOnlySuggestionsChange={setOnlySuggestions}
         lastSync={timeAgo(syncStatus?.last_sync?.completed_at)}
         onRefresh={handleRefresh}
-        onRunAnalytics={handleRunAnalytics}
         isLoading={isSyncing}
       />
 
@@ -533,50 +693,41 @@ export default function CampaignHealth() {
       )}
 
       {/* Main Campaigns Table */}
-      <div className="mb-4">
-        <h2 className="text-xl font-bold text-white mb-4">Main Campaigns</h2>
-        <CampaignTable
-          campaigns={regularCampaigns}
-          isInitialLoading={isInitialLoading}
-          onStatusChange={handleStatusChange}
-          onApply={handleApply}
-          onToggleHide={handleToggleHide}
-          updatingStatus={updatingStatus}
-          applying={applying}
-          hidingId={hidingId}
-          emptyMessage="No main campaigns found. Run a sync to fetch campaigns from Smartlead."
-        />
-      </div>
-
-      {/* Footer info for main campaigns */}
-      <div className="mb-8 text-sm text-gray-500 text-right">
-        Showing {regularCampaigns.length} main campaigns
-      </div>
+      <CampaignTable
+        campaigns={regularCampaigns}
+        isInitialLoading={isInitialLoading}
+        onStatusChange={handleStatusChange}
+        onApply={handleApply}
+        onToggleHide={handleToggleHide}
+        updatingStatus={updatingStatus}
+        applying={applying}
+        hidingId={hidingId}
+        emptyMessage="No main campaigns found. Click 'Sync Campaigns' to fetch from Smartlead."
+        title="MAIN CAMPAIGNS"
+        titleColor="accent"
+        onRefreshTable={handleRefreshMainTable}
+        isRefreshing={refreshingMain}
+      />
 
       {/* Divider */}
-      <div className="border-t-4 border-accent my-10"></div>
+      <div className="border-t-4 border-gray-700 my-10"></div>
 
       {/* Follow-up / Subsequences Section */}
-      <div className="mb-4">
-        <h2 className="text-3xl font-bold text-accent mb-2">FOLLOW-UP CAMPAIGNS</h2>
-        <p className="text-gray-400 mb-4">Subsequence campaigns for lead nurturing</p>
-        <CampaignTable
-          campaigns={followUpCampaigns}
-          isInitialLoading={isInitialLoading}
-          onStatusChange={handleStatusChange}
-          onApply={handleApply}
-          onToggleHide={handleToggleHide}
-          updatingStatus={updatingStatus}
-          applying={applying}
-          hidingId={hidingId}
-          emptyMessage="No follow-up campaigns found."
-        />
-      </div>
-
-      {/* Footer info for follow-up campaigns */}
-      <div className="mt-4 text-sm text-gray-500 text-right">
-        Showing {followUpCampaigns.length} follow-up campaigns
-      </div>
+      <CampaignTable
+        campaigns={followUpCampaigns}
+        isInitialLoading={isInitialLoading}
+        onStatusChange={handleStatusChange}
+        onApply={handleApply}
+        onToggleHide={handleToggleHide}
+        updatingStatus={updatingStatus}
+        applying={applying}
+        hidingId={hidingId}
+        emptyMessage="No follow-up campaigns found."
+        title="FOLLOW-UP CAMPAIGNS"
+        titleColor="accent"
+        onRefreshTable={handleRefreshFollowUpTable}
+        isRefreshing={refreshingFollowUp}
+      />
 
       {/* Hidden Campaigns Section */}
       {totalHidden > 0 && (
@@ -599,40 +750,38 @@ export default function CampaignHealth() {
             <>
               {/* Hidden Main Campaigns */}
               {hiddenRegularCampaigns.length > 0 && (
-                <div className="mb-8">
-                  <h3 className="text-lg font-semibold text-gray-400 mb-4">Hidden Main Campaigns</h3>
-                  <CampaignTable
-                    campaigns={hiddenRegularCampaigns}
-                    isInitialLoading={hiddenLoading && hiddenRegularCampaigns.length === 0}
-                    onStatusChange={handleStatusChange}
-                    onApply={handleApply}
-                    onToggleHide={handleToggleHide}
-                    updatingStatus={updatingStatus}
-                    applying={applying}
-                    hidingId={hidingId}
-                    emptyMessage="No hidden main campaigns."
-                    showUnhide={true}
-                  />
-                </div>
+                <CampaignTable
+                  campaigns={hiddenRegularCampaigns}
+                  isInitialLoading={hiddenLoading && hiddenRegularCampaigns.length === 0}
+                  onStatusChange={handleStatusChange}
+                  onApply={handleApply}
+                  onToggleHide={handleToggleHide}
+                  updatingStatus={updatingStatus}
+                  applying={applying}
+                  hidingId={hidingId}
+                  emptyMessage="No hidden main campaigns."
+                  showUnhide={true}
+                  title="Hidden Main Campaigns"
+                  titleColor="gray-400"
+                />
               )}
 
               {/* Hidden Follow-up Campaigns */}
               {hiddenFollowUpCampaigns.length > 0 && (
-                <div className="mb-4">
-                  <h3 className="text-lg font-semibold text-gray-400 mb-4">Hidden Follow-up Campaigns</h3>
-                  <CampaignTable
-                    campaigns={hiddenFollowUpCampaigns}
-                    isInitialLoading={hiddenLoading && hiddenFollowUpCampaigns.length === 0}
-                    onStatusChange={handleStatusChange}
-                    onApply={handleApply}
-                    onToggleHide={handleToggleHide}
-                    updatingStatus={updatingStatus}
-                    applying={applying}
-                    hidingId={hidingId}
-                    emptyMessage="No hidden follow-up campaigns."
-                    showUnhide={true}
-                  />
-                </div>
+                <CampaignTable
+                  campaigns={hiddenFollowUpCampaigns}
+                  isInitialLoading={hiddenLoading && hiddenFollowUpCampaigns.length === 0}
+                  onStatusChange={handleStatusChange}
+                  onApply={handleApply}
+                  onToggleHide={handleToggleHide}
+                  updatingStatus={updatingStatus}
+                  applying={applying}
+                  hidingId={hidingId}
+                  emptyMessage="No hidden follow-up campaigns."
+                  showUnhide={true}
+                  title="Hidden Follow-up Campaigns"
+                  titleColor="gray-400"
+                />
               )}
             </>
           )}

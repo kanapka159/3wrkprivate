@@ -1,4 +1,4 @@
-import { Search, RefreshCw, Play } from 'lucide-react';
+import { Search, RefreshCw } from 'lucide-react';
 import Button from './Button';
 
 export default function FilterBar({
@@ -13,7 +13,6 @@ export default function FilterBar({
   onOnlySuggestionsChange,
   lastSync,
   onRefresh,
-  onRunAnalytics,
   isLoading = false,
 }) {
   return (
@@ -77,28 +76,17 @@ export default function FilterBar({
         </span>
       )}
 
-      {/* Action Buttons */}
-      <div className="flex gap-2 ml-auto">
+      {/* Sync Button */}
+      <div className="ml-auto">
         {onRefresh && (
           <Button
-            variant="secondary"
+            variant="primary"
             onClick={onRefresh}
             loading={isLoading}
             disabled={isLoading}
           >
             <RefreshCw size={16} />
-            Refresh
-          </Button>
-        )}
-        {onRunAnalytics && (
-          <Button
-            variant="primary"
-            onClick={onRunAnalytics}
-            loading={isLoading}
-            disabled={isLoading}
-          >
-            <Play size={16} />
-            Run Analytics
+            Sync Campaigns
           </Button>
         )}
       </div>
