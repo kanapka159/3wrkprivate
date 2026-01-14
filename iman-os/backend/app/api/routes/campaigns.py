@@ -12,7 +12,7 @@ from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db import get_db, Campaign, CampaignDailyStats, Sequence
-from ...services import SmartleadClient
+from ...services import SmartleadClient, SyncService, cache
 from ...services.smartlead import SmartleadAPIError
 from ...services.suggestion_engine import SuggestionEngine
 
@@ -431,3 +431,71 @@ async def get_campaign_daily_stats(
             for ds in daily_stats
         ],
     }
+
+
+@router.post("/refresh")
+async def refresh_campaigns(
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Trigger a refresh/sync of all campaigns from Smartlead.
+
+    This endpoint:
+    1. Syncs all campaigns with full statistics
+    2. Invalidates the campaigns cache
+    3. Returns sync results
+
+    Response format:
+    {
+        "success": true,
+        "message": "Campaigns refreshed successfully",
+        "data": {
+            "campaigns_synced": 25,
+            "started_at": "2024-01-15T10:30:00Z",
+            "completed_at": "2024-01-15T10:31:30Z"
+        }
+    }
+    """
+    import traceback
+    import logging
+
+    logger = logging.getLogger(__name__)
+
+    try:
+        sync_service = SyncService(db)
+        result = await sync_service.sync_all_campaigns()
+
+        # Invalidate cache after successful sync
+        await cache.invalidate_pattern("campaigns")
+
+        return {
+            "success": True,
+            "message": "Campaigns refreshed successfully",
+            "data": result,
+        }
+
+    except SmartleadAPIError as e:
+        logger.error(f"Smartlead API error during refresh: {e.message}")
+        raise HTTPException(
+            status_code=e.status_code or 500,
+            detail={
+                "success": False,
+                "error": {
+                    "code": "SMARTLEAD_API_ERROR",
+                    "message": e.message,
+                }
+            }
+        )
+    except Exception as e:
+        error_trace = traceback.format_exc()
+        logger.error(f"Refresh failed: {error_trace}")
+        raise HTTPException(
+            status_code=500,
+            detail={
+                "success": False,
+                "error": {
+                    "code": "INTERNAL_ERROR",
+                    "message": str(e),
+                }
+            }
+        )
