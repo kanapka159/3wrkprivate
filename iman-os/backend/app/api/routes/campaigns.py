@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db import get_db, Campaign, CampaignDailyStats, Sequence
@@ -100,10 +100,19 @@ async def list_campaigns(
     )
 
     # Filter by hidden status
+    # DRAFTED campaigns are treated as hidden automatically
     if only_hidden:
-        query = query.where(Campaign.is_hidden == True)
+        # Show hidden campaigns AND drafted campaigns
+        query = query.where(
+            or_(
+                Campaign.is_hidden == True,
+                Campaign.status == "DRAFTED"
+            )
+        )
     elif not include_hidden:
+        # Exclude hidden campaigns AND drafted campaigns
         query = query.where(Campaign.is_hidden == False)
+        query = query.where(Campaign.status != "DRAFTED")
 
     if status:
         query = query.where(Campaign.status == status.upper())
