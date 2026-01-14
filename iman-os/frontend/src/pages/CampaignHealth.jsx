@@ -13,12 +13,23 @@ import { useApi, useMutation } from '../hooks/useApi';
 import { api } from '../utils/api';
 import { formatNumber, formatPercent, timeAgo } from '../utils/formatters';
 
-// Rate color helper
+// Rate color helper - green >= 3.1%, yellow >= 1%, red < 1%
 function getRateColor(rate) {
-  if (rate >= 2) return 'text-success';
+  if (rate >= 3.1) return 'text-success';
   if (rate >= 1) return 'text-warning';
-  if (rate >= 0.5) return 'text-accent';
   return 'text-danger';
+}
+
+// Status sort order - Active/Started first, then Paused, then Stopped
+function getStatusSortOrder(status) {
+  const order = {
+    'ACTIVE': 0,
+    'STARTED': 0,
+    'PAUSED': 1,
+    'STOPPED': 2,
+    'DRAFTED': 3,
+  };
+  return order[status] ?? 4;
 }
 
 // Check if campaign is a follow-up/subsequence
@@ -104,22 +115,24 @@ function StatusDropdown({ status, campaignId, onStatusChange, disabled }) {
 // Sortable header component with two-line support
 function SortableHeader({ label, subLabel, field, sortField, sortDirection, onSort, align = 'left', minWidth }) {
   const isActive = sortField === field;
-  const alignClass = align === 'right' ? 'text-right' : 'text-left';
+  const alignClass = align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : 'text-left';
+  const flexAlign = align === 'center' ? 'items-center' : align === 'right' ? 'items-end' : 'items-start';
+  const justifyAlign = align === 'center' ? 'justify-center' : align === 'right' ? 'justify-end' : '';
 
   return (
     <th
-      className={`px-3 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider cursor-pointer hover:text-white transition-colors ${alignClass}`}
+      className={`px-3 py-3 text-white text-xs font-semibold uppercase tracking-wider cursor-pointer hover:text-accent transition-colors ${alignClass}`}
       onClick={() => onSort(field)}
       style={minWidth ? { minWidth } : {}}
     >
-      <div className={`flex flex-col ${align === 'right' ? 'items-end' : 'items-start'}`}>
-        <div className={`flex items-center gap-1 ${align === 'right' ? 'justify-end' : ''}`}>
+      <div className={`flex flex-col ${flexAlign}`}>
+        <div className={`flex items-center gap-1 ${justifyAlign}`}>
           <span>{label}</span>
           {isActive && (
-            sortDirection === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />
+            sortDirection === 'asc' ? <ChevronUp size={12} className="text-accent" /> : <ChevronDown size={12} className="text-accent" />
           )}
         </div>
-        {subLabel && <span className="text-gray-500 text-[10px]">{subLabel}</span>}
+        {subLabel && <span className="text-gray-400 text-[10px]">{subLabel}</span>}
       </div>
     </th>
   );
@@ -141,8 +154,9 @@ function CampaignTable({
   titleColor = 'white',
   lastRefreshed,
 }) {
-  const [sortField, setSortField] = useState(null);
-  const [sortDirection, setSortDirection] = useState('desc');
+  // Default sort by status (Active first)
+  const [sortField, setSortField] = useState('status');
+  const [sortDirection, setSortDirection] = useState('asc');
 
   const handleSort = (field) => {
     if (sortField === field) {
@@ -170,8 +184,9 @@ function CampaignTable({
           bVal = new Date(b.created_at || 0).getTime();
           break;
         case 'status':
-          aVal = a.status || '';
-          bVal = b.status || '';
+          // Use custom sort order for status
+          aVal = getStatusSortOrder(a.status);
+          bVal = getStatusSortOrder(b.status);
           break;
         case 'suggestion':
           aVal = a.suggestion?.suggestion || '';
@@ -252,12 +267,12 @@ function CampaignTable({
                 <SortableHeader label="Campaign" subLabel="Name" field="name" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} minWidth="180px" />
                 <SortableHeader label="Created" field="created" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} minWidth="100px" />
                 <SortableHeader label="Status" field="status" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} minWidth="100px" />
-                <SortableHeader label="7D" subLabel="Sent" field="7d_sent" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="right" minWidth="70px" />
-                <SortableHeader label="7D Reply" subLabel="Ratio" field="7d_rate" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="right" minWidth="80px" />
-                <SortableHeader label="14D" subLabel="Sent" field="14d_sent" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="right" minWidth="70px" />
-                <SortableHeader label="14D Reply" subLabel="Ratio" field="14d_rate" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="right" minWidth="85px" />
-                <SortableHeader label="28D Reply" subLabel="Ratio" field="28d_rate" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="right" minWidth="85px" />
-                <SortableHeader label="Positive" subLabel="Reply Ratio" field="positive" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="right" minWidth="90px" />
+                <SortableHeader label="7D" subLabel="Sent" field="7d_sent" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="70px" />
+                <SortableHeader label="7D Reply" subLabel="Ratio" field="7d_rate" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="90px" />
+                <SortableHeader label="14D" subLabel="Sent" field="14d_sent" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="70px" />
+                <SortableHeader label="14D Reply" subLabel="Ratio" field="14d_rate" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="95px" />
+                <SortableHeader label="28D Reply" subLabel="Ratio" field="28d_rate" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="left" minWidth="95px" />
+                <SortableHeader label="Positive" subLabel="Reply Ratio" field="positive" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="90px" />
                 <SortableHeader label="Suggested" field="suggestion" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} minWidth="100px" />
                 <SortableHeader label="Warnings" field="warnings" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} minWidth="120px" />
               </tr>
@@ -346,43 +361,43 @@ function CampaignTable({
                       </td>
 
                       {/* 7D Sent */}
-                      <td className="px-3 py-3 text-right">
-                        <span className="text-white text-sm">
+                      <td className="px-3 py-3 text-center">
+                        <span className="text-white text-sm font-medium">
                           {formatNumber(periods['7_days']?.sent_count || stats.sent_count || 0)}
                         </span>
                       </td>
 
                       {/* 7D Reply Ratio */}
-                      <td className="px-3 py-3 text-right">
-                        <span className={`text-sm font-medium ${getRateColor(periods['7_days']?.reply_rate || stats.reply_rate || 0)}`}>
+                      <td className="px-3 py-3 text-center">
+                        <span className={`text-sm font-bold ${getRateColor(periods['7_days']?.reply_rate || stats.reply_rate || 0)}`}>
                           {formatPercent(periods['7_days']?.reply_rate || stats.reply_rate || 0)}
                         </span>
                       </td>
 
                       {/* 14D Sent */}
-                      <td className="px-3 py-3 text-right">
-                        <span className="text-white text-sm">
+                      <td className="px-3 py-3 text-center">
+                        <span className="text-white text-sm font-medium">
                           {formatNumber(periods['14_days']?.sent_count || 0)}
                         </span>
                       </td>
 
                       {/* 14D Reply Ratio */}
-                      <td className="px-3 py-3 text-right">
-                        <span className={`text-sm font-medium ${getRateColor(periods['14_days']?.reply_rate || 0)}`}>
+                      <td className="px-3 py-3 text-center">
+                        <span className={`text-sm font-bold ${getRateColor(periods['14_days']?.reply_rate || 0)}`}>
                           {formatPercent(periods['14_days']?.reply_rate || 0)}
                         </span>
                       </td>
 
                       {/* 28D Reply Ratio */}
-                      <td className="px-3 py-3 text-right">
-                        <span className={`text-sm font-medium ${getRateColor(periods['28_days']?.reply_rate || 0)}`}>
+                      <td className="px-3 py-3 text-left">
+                        <span className={`text-sm font-bold ${getRateColor(periods['28_days']?.reply_rate || 0)}`}>
                           {formatPercent(periods['28_days']?.reply_rate || 0)}
                         </span>
                       </td>
 
                       {/* Positive Reply Ratio */}
-                      <td className="px-3 py-3 text-right">
-                        <span className="text-gray-400 text-sm">
+                      <td className="px-3 py-3 text-center">
+                        <span className="text-white text-sm font-medium">
                           {formatPercent(stats.positive_rate || 0)}
                         </span>
                       </td>
