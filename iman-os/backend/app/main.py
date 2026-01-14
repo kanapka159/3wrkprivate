@@ -30,6 +30,8 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan handler."""
+    from .services import scheduler
+
     # Startup
     logger.info("Starting IMAN OS Backend...")
 
@@ -42,9 +44,20 @@ async def lifespan(app: FastAPI):
     logger.info("Creating database tables...")
     await init_db()
     logger.info("Database initialized - all tables created")
+
+    # Start background scheduler (unless disabled)
+    if os.getenv("DISABLE_SCHEDULER", "false").lower() != "true":
+        await scheduler.start()
+        logger.info("Background scheduler started")
+    else:
+        logger.info("Background scheduler disabled via DISABLE_SCHEDULER env var")
+
     yield
+
     # Shutdown
     logger.info("Shutting down IMAN OS Backend...")
+    await scheduler.stop()
+    logger.info("Background scheduler stopped")
 
 
 # Create FastAPI app (redirect_slashes=False prevents 307 redirects)
@@ -82,8 +95,42 @@ async def root():
 
 @app.get("/health")
 async def health_check():
-    """Health check endpoint."""
-    return {"status": "ok"}
+    """
+    Comprehensive health check endpoint.
+
+    Returns:
+    - status: "healthy" or "degraded"
+    - uptime: How long the server has been running
+    - lastRefresh: Timestamp of last campaign refresh
+    - nextRefresh: Timestamp of next scheduled refresh
+    - cacheSize: Number of items in cache
+    - apiCallsLast24h: API calls made in last 24 hours
+    """
+    from .services import metrics, cache
+
+    scheduler_status = metrics.get_status()
+    cache_status = await cache.get_status()
+    api_calls = await metrics.get_api_calls_24h()
+
+    return {
+        "status": scheduler_status["status"],
+        "uptime": scheduler_status["uptime"],
+        "lastRefresh": scheduler_status["last_refresh"],
+        "nextRefresh": scheduler_status["next_refresh"],
+        "cacheSize": cache_status["total_entries"],
+        "apiCallsLast24h": api_calls,
+        "scheduler": {
+            "totalRefreshes": scheduler_status["total_refreshes"],
+            "lastRefreshDuration": scheduler_status["last_refresh_duration_seconds"],
+            "lastRefreshCampaigns": scheduler_status["last_refresh_campaigns"],
+            "lastError": scheduler_status["last_error"],
+        },
+        "cache": {
+            "hitRate": cache_status["hit_rate"],
+            "totalHits": cache_status["total_hits"],
+            "totalMisses": cache_status["total_misses"],
+        },
+    }
 
 
 @app.post("/reset-db")
