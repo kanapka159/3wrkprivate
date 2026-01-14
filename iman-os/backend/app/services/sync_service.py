@@ -577,6 +577,28 @@ class SyncService:
         if created_at:
             logger.info(f"Parsed created_at for campaign {smartlead_id}: {created_at}")
 
+        # Parse completion percentage - try multiple field names
+        completion = None
+        for field in ["progress", "completion", "completion_percentage", "percent_complete", "campaign_progress"]:
+            val = campaign_data.get(field)
+            if val is not None:
+                try:
+                    completion = float(val)
+                    break
+                except (ValueError, TypeError):
+                    continue
+
+        # Parse total leads count
+        total_leads = None
+        for field in ["total_leads", "lead_count", "leads_count", "total_lead_count", "leads"]:
+            val = campaign_data.get(field)
+            if val is not None:
+                try:
+                    total_leads = int(val)
+                    break
+                except (ValueError, TypeError):
+                    continue
+
         if campaign:
             campaign.name = campaign_data.get("name", campaign.name)
             campaign.status = campaign_data.get("status", campaign.status)
@@ -585,6 +607,11 @@ class SyncService:
             # Update created_at if we got it from Smartlead and don't have it yet
             if created_at and not campaign.created_at:
                 campaign.created_at = created_at
+            # Update completion percentage
+            if completion is not None:
+                campaign.completion_percentage = completion
+            if total_leads is not None:
+                campaign.total_leads = total_leads
         else:
             campaign = Campaign(
                 smartlead_id=smartlead_id,
@@ -593,6 +620,8 @@ class SyncService:
                 client_id=campaign_data.get("client_id"),
                 client_name=campaign_data.get("client_name"),
                 created_at=created_at,  # Store Smartlead creation date
+                completion_percentage=completion,
+                total_leads=total_leads,
             )
             self.db.add(campaign)
 

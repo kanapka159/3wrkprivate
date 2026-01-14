@@ -27,6 +27,8 @@ class Campaign(Base):
     local_created_at = Column(DateTime, default=datetime.utcnow)  # When added to our DB
     last_synced_at = Column(DateTime, nullable=True)
     is_hidden = Column(Boolean, default=False, index=True)
+    completion_percentage = Column(Float, nullable=True)  # Campaign completion % from Smartlead
+    total_leads = Column(Integer, nullable=True)  # Total leads in campaign
 
     # Relationships
     daily_stats = relationship("CampaignDailyStats", back_populates="campaign", cascade="all, delete-orphan")

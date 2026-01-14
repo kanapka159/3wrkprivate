@@ -87,17 +87,28 @@ async def init_db():
 
 async def _run_migrations(conn):
     """Run schema migrations for existing databases."""
-    # Check and add local_created_at column to campaigns table
     try:
         result = await conn.execute(text("PRAGMA table_info(campaigns)"))
         columns = [row[1] for row in result.fetchall()]
 
+        # Add local_created_at column
         if "local_created_at" not in columns:
             logger.info("Adding local_created_at column to campaigns table")
             await conn.execute(text("ALTER TABLE campaigns ADD COLUMN local_created_at DATETIME"))
-            # Copy existing created_at values to local_created_at for backwards compatibility
             await conn.execute(text("UPDATE campaigns SET local_created_at = created_at WHERE local_created_at IS NULL"))
             logger.info("Migration completed: added local_created_at column")
+
+        # Add completion_percentage column
+        if "completion_percentage" not in columns:
+            logger.info("Adding completion_percentage column to campaigns table")
+            await conn.execute(text("ALTER TABLE campaigns ADD COLUMN completion_percentage FLOAT"))
+            logger.info("Migration completed: added completion_percentage column")
+
+        # Add total_leads column
+        if "total_leads" not in columns:
+            logger.info("Adding total_leads column to campaigns table")
+            await conn.execute(text("ALTER TABLE campaigns ADD COLUMN total_leads INTEGER"))
+            logger.info("Migration completed: added total_leads column")
 
     except Exception as e:
         logger.warning(f"Migration check failed (may be expected on fresh DB): {e}")

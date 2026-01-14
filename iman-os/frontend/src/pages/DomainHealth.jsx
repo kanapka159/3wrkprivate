@@ -50,6 +50,43 @@ function getCampaignProvider(campaign) {
   return 'OTHER';
 }
 
+// Circular Progress/Battery indicator
+function CompletionBattery({ percentage }) {
+  const value = percentage ?? 0;
+  const radius = 18;
+  const strokeWidth = 4;
+  const normalizedRadius = radius - strokeWidth / 2;
+  const circumference = normalizedRadius * 2 * Math.PI;
+  const strokeDashoffset = circumference - (value / 100) * circumference;
+
+  return (
+    <div className="flex flex-col items-center">
+      <svg height={radius * 2} width={radius * 2} className="transform -rotate-90">
+        <circle
+          stroke="#374151"
+          fill="transparent"
+          strokeWidth={strokeWidth}
+          r={normalizedRadius}
+          cx={radius}
+          cy={radius}
+        />
+        <circle
+          stroke="#f97316"
+          fill="transparent"
+          strokeWidth={strokeWidth}
+          strokeDasharray={`${circumference} ${circumference}`}
+          style={{ strokeDashoffset }}
+          strokeLinecap="round"
+          r={normalizedRadius}
+          cx={radius}
+          cy={radius}
+        />
+      </svg>
+      <span className="text-[10px] text-gray-400 mt-0.5">{Math.round(value)}%</span>
+    </div>
+  );
+}
+
 // Warning Badge with Tooltip
 function WarningBadgeWithTooltip({ text }) {
   const tooltips = {
@@ -227,11 +264,21 @@ function ProviderCampaignTable({
     }
   };
 
-  // Sort campaigns
+  // Sort campaigns - ALWAYS sort by status first (Active > Paused > Stopped), then by selected field
   const sortedCampaigns = useMemo(() => {
-    if (!sortField) return campaigns;
-
     return [...campaigns].sort((a, b) => {
+      // PRIMARY SORT: Always by status (Active first, then Paused, then Stopped)
+      const statusA = getStatusSortOrder(a.status);
+      const statusB = getStatusSortOrder(b.status);
+      if (statusA !== statusB) {
+        return statusA - statusB;
+      }
+
+      // SECONDARY SORT: By selected field within same status group
+      if (!sortField || sortField === 'status') {
+        return 0;
+      }
+
       let aVal, bVal;
 
       switch (sortField) {
@@ -243,9 +290,9 @@ function ProviderCampaignTable({
           aVal = new Date(a.created_at || 0).getTime();
           bVal = new Date(b.created_at || 0).getTime();
           break;
-        case 'status':
-          aVal = getStatusSortOrder(a.status);
-          bVal = getStatusSortOrder(b.status);
+        case 'completion':
+          aVal = a.completion_percentage || 0;
+          bVal = b.completion_percentage || 0;
           break;
         case 'suggestion':
           aVal = a.suggestion?.suggestion || '';
@@ -373,8 +420,9 @@ function ProviderCampaignTable({
                     <div className="w-1 h-6 bg-gray-600 group-hover:bg-accent group-hover:w-1.5 rounded-full transition-all"></div>
                   </div>
                 </th>
-                <SortableHeader label="Created" field="created" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} minWidth="100px" />
-                <SortableHeader label="Status" field="status" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} minWidth="100px" />
+                <SortableHeader label="Created" field="created" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="100px" />
+                <SortableHeader label="Status" field="status" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="100px" />
+                <SortableHeader label="Progress" field="completion" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="70px" />
                 <SortableHeader label="7D" subLabel="Sent" field="7d_sent" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="70px" />
                 <SortableHeader label="7D Reply" subLabel="Ratio" field="7d_rate" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="90px" />
                 <SortableHeader label="14D" subLabel="Sent" field="14d_sent" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="70px" />
@@ -388,13 +436,13 @@ function ProviderCampaignTable({
             <tbody>
               {showLoadingSpinner ? (
                 <tr>
-                  <td colSpan="12" className="px-4 py-12 text-center">
+                  <td colSpan="13" className="px-4 py-12 text-center">
                     <LoadingSpinner size="lg" />
                   </td>
                 </tr>
               ) : sortedCampaigns.length === 0 ? (
                 <tr>
-                  <td colSpan="12" className="px-4 py-12 text-center text-gray-500">
+                  <td colSpan="13" className="px-4 py-12 text-center text-gray-500">
                     {emptyMessage}
                   </td>
                 </tr>
@@ -445,20 +493,27 @@ function ProviderCampaignTable({
                       </td>
 
                       {/* Created Date */}
-                      <td className="px-3 py-3">
+                      <td className="px-3 py-3 text-center">
                         <span className="text-gray-400 text-sm">
                           {createdDate}
                         </span>
                       </td>
 
                       {/* Status with dropdown */}
-                      <td className="px-3 py-3">
-                        <StatusDropdown
-                          status={campaign.status}
-                          campaignId={campaign.id}
-                          onStatusChange={onStatusChange}
-                          disabled={updatingStatus}
-                        />
+                      <td className="px-3 py-3 text-center">
+                        <div className="flex justify-center">
+                          <StatusDropdown
+                            status={campaign.status}
+                            campaignId={campaign.id}
+                            onStatusChange={onStatusChange}
+                            disabled={updatingStatus}
+                          />
+                        </div>
+                      </td>
+
+                      {/* Progress */}
+                      <td className="px-3 py-3 text-center">
+                        <CompletionBattery percentage={campaign.completion_percentage} />
                       </td>
 
                       {/* 7D Sent */}
@@ -544,6 +599,7 @@ function ProviderCampaignTable({
                       </span>
                     </div>
                   </td>
+                  <td className="px-3 py-4"></td>
                   <td className="px-3 py-4"></td>
                   <td className="px-3 py-4"></td>
                   <td className="px-3 py-4 text-center">

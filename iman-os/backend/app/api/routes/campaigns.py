@@ -186,6 +186,8 @@ async def list_campaigns(
             "is_hidden": campaign.is_hidden or False,
             "last_synced_at": campaign.last_synced_at.isoformat() if campaign.last_synced_at else None,
             "created_at": campaign.created_at.isoformat() if campaign.created_at else None,
+            "completion_percentage": campaign.completion_percentage,
+            "total_leads": campaign.total_leads,
             "stats": {
                 "sent_count": sent,
                 "reply_count": replied,
