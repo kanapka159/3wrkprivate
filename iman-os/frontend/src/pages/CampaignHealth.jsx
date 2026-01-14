@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { BarChart3, Activity, AlertTriangle, Clock, ChevronDown, Minus, Plus, Eye, EyeOff } from 'lucide-react';
+import { BarChart3, Activity, AlertTriangle, Clock, ChevronDown, Minus, Plus, Eye, EyeOff, RefreshCw } from 'lucide-react';
 import { PageHeader } from '../components/layout';
 import {
   StatsCard,
@@ -26,6 +26,18 @@ function getRateColor(rate) {
 function isFollowUpCampaign(campaign) {
   const name = (campaign.name || '').toLowerCase();
   return name.includes('follow up') || name.includes('follow-up') || name.includes('followup');
+}
+
+// Top loading banner component
+function SyncingBanner({ isVisible }) {
+  if (!isVisible) return null;
+
+  return (
+    <div className="fixed top-0 left-0 right-0 z-50 bg-accent/90 text-white py-2 px-4 flex items-center justify-center gap-3 shadow-lg">
+      <RefreshCw size={18} className="animate-spin" />
+      <span className="font-medium">Syncing campaigns...</span>
+    </div>
+  );
 }
 
 // Status dropdown component
@@ -72,7 +84,7 @@ function StatusDropdown({ status, campaignId, onStatusChange, disabled }) {
 // Reusable Campaign Table component
 function CampaignTable({
   campaigns,
-  isLoading,
+  isInitialLoading,
   onStatusChange,
   onApply,
   onToggleHide,
@@ -82,6 +94,9 @@ function CampaignTable({
   emptyMessage = "No campaigns found.",
   showUnhide = false,
 }) {
+  // Only show full loading spinner on initial load (no data yet)
+  const showLoadingSpinner = isInitialLoading && campaigns.length === 0;
+
   return (
     <div className="bg-card rounded-lg overflow-hidden">
       <div className="overflow-x-auto">
@@ -105,7 +120,7 @@ function CampaignTable({
             </tr>
           </thead>
           <tbody>
-            {isLoading ? (
+            {showLoadingSpinner ? (
               <tr>
                 <td colSpan="14" className="px-4 py-12 text-center">
                   <LoadingSpinner size="lg" />
@@ -293,6 +308,7 @@ export default function CampaignHealth() {
   const [onlySuggestions, setOnlySuggestions] = useState(false);
   const [showHidden, setShowHidden] = useState(false);
   const [hidingId, setHidingId] = useState(null);
+  const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
 
   // API calls
   const {
@@ -301,6 +317,11 @@ export default function CampaignHealth() {
     error: campaignsError,
     execute: refreshCampaigns,
   } = useApi(() => api.getCampaigns({ only_suggestions: onlySuggestions }), [onlySuggestions]);
+
+  // Track when data has loaded at least once
+  if (campaignsData && !hasLoadedOnce) {
+    setHasLoadedOnce(true);
+  }
 
   // Fetch hidden campaigns
   const {
@@ -322,6 +343,10 @@ export default function CampaignHealth() {
     (campaignId, status) => api.updateCampaignStatus(campaignId, status)
   );
   const { execute: toggleHidden } = useMutation(api.toggleCampaignHidden);
+
+  // Determine loading states
+  const isInitialLoading = campaignsLoading && !hasLoadedOnce;
+  const isSyncing = syncing || (campaignsLoading && hasLoadedOnce);
 
   // Refresh all data
   const handleRefresh = async () => {
@@ -439,10 +464,11 @@ export default function CampaignHealth() {
     };
   }, [campaignsData]);
 
-  const isLoading = campaignsLoading || syncing;
-
   return (
     <div>
+      {/* Syncing Banner - shows at top when refreshing */}
+      <SyncingBanner isVisible={isSyncing} />
+
       {/* Header */}
       <PageHeader
         title="Campaign Health"
@@ -496,7 +522,7 @@ export default function CampaignHealth() {
         lastSync={timeAgo(syncStatus?.last_sync?.completed_at)}
         onRefresh={handleRefresh}
         onRunAnalytics={handleRunAnalytics}
-        isLoading={isLoading}
+        isLoading={isSyncing}
       />
 
       {/* Error State */}
@@ -511,7 +537,7 @@ export default function CampaignHealth() {
         <h2 className="text-xl font-bold text-white mb-4">Main Campaigns</h2>
         <CampaignTable
           campaigns={regularCampaigns}
-          isLoading={isLoading}
+          isInitialLoading={isInitialLoading}
           onStatusChange={handleStatusChange}
           onApply={handleApply}
           onToggleHide={handleToggleHide}
@@ -536,7 +562,7 @@ export default function CampaignHealth() {
         <p className="text-gray-400 mb-4">Subsequence campaigns for lead nurturing</p>
         <CampaignTable
           campaigns={followUpCampaigns}
-          isLoading={isLoading}
+          isInitialLoading={isInitialLoading}
           onStatusChange={handleStatusChange}
           onApply={handleApply}
           onToggleHide={handleToggleHide}
@@ -577,7 +603,7 @@ export default function CampaignHealth() {
                   <h3 className="text-lg font-semibold text-gray-400 mb-4">Hidden Main Campaigns</h3>
                   <CampaignTable
                     campaigns={hiddenRegularCampaigns}
-                    isLoading={hiddenLoading}
+                    isInitialLoading={hiddenLoading && hiddenRegularCampaigns.length === 0}
                     onStatusChange={handleStatusChange}
                     onApply={handleApply}
                     onToggleHide={handleToggleHide}
@@ -596,7 +622,7 @@ export default function CampaignHealth() {
                   <h3 className="text-lg font-semibold text-gray-400 mb-4">Hidden Follow-up Campaigns</h3>
                   <CampaignTable
                     campaigns={hiddenFollowUpCampaigns}
-                    isLoading={hiddenLoading}
+                    isInitialLoading={hiddenLoading && hiddenFollowUpCampaigns.length === 0}
                     onStatusChange={handleStatusChange}
                     onApply={handleApply}
                     onToggleHide={handleToggleHide}
