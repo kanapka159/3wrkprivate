@@ -583,7 +583,7 @@ function CampaignTable({
                     <div className="flex flex-col items-center justify-center">
                       <span className="text-accent text-sm font-bold tracking-wide">SUMMARY OF ALL</span>
                       <span className="text-gray-500 text-xs font-normal mt-0.5">
-                        {summary.activeCount} active
+                        {summary.activeCount} active, {summary.totalCount} total
                       </span>
                     </div>
                   </td>
@@ -638,10 +638,6 @@ function CampaignTable({
         </div>
       </div>
 
-      {/* Footer info */}
-      <div className="mt-2 text-sm text-gray-500 text-right">
-        Showing {sortedCampaigns.length} campaigns
-      </div>
     </div>
   );
 }
