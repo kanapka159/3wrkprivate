@@ -110,42 +110,52 @@ function SuggestionBadgeWithTooltip({ suggestion, color, reason }) {
   );
 }
 
-// Circular Progress/Battery indicator
+// Battery-style progress indicator (iPhone style)
 function CompletionBattery({ percentage }) {
-  // Default to 0 if no percentage
   const value = percentage ?? 0;
-  const radius = 18;
-  const strokeWidth = 4;
-  const normalizedRadius = radius - strokeWidth / 2;
-  const circumference = normalizedRadius * 2 * Math.PI;
-  const strokeDashoffset = circumference - (value / 100) * circumference;
+  const fillWidth = Math.max(0, Math.min(100, value)) * 0.22; // 22px max fill width
+
+  // Color based on percentage: green >= 50%, yellow 20-50%, red < 20%
+  const getFillColor = () => {
+    if (value >= 50) return '#22c55e'; // green
+    if (value >= 20) return '#f97316'; // orange
+    return '#ef4444'; // red
+  };
 
   return (
     <div className="flex flex-col items-center">
-      <svg height={radius * 2} width={radius * 2} className="transform -rotate-90">
-        {/* Background circle */}
-        <circle
-          stroke="#374151"
+      <svg width="32" height="16" viewBox="0 0 32 16">
+        {/* Battery body outline */}
+        <rect
+          x="1"
+          y="2"
+          width="26"
+          height="12"
+          rx="2"
+          ry="2"
           fill="transparent"
-          strokeWidth={strokeWidth}
-          r={normalizedRadius}
-          cx={radius}
-          cy={radius}
+          stroke="#6b7280"
+          strokeWidth="1.5"
         />
-        {/* Progress circle - orange color */}
-        <circle
-          stroke="#f97316"
-          fill="transparent"
-          strokeWidth={strokeWidth}
-          strokeDasharray={`${circumference} ${circumference}`}
-          style={{ strokeDashoffset }}
-          strokeLinecap="round"
-          r={normalizedRadius}
-          cx={radius}
-          cy={radius}
+        {/* Battery tip (positive terminal) */}
+        <rect
+          x="27"
+          y="5"
+          width="3"
+          height="6"
+          rx="1"
+          fill="#6b7280"
+        />
+        {/* Battery fill */}
+        <rect
+          x="3"
+          y="4"
+          width={fillWidth}
+          height="8"
+          rx="1"
+          fill={getFillColor()}
         />
       </svg>
-      {/* Percentage text below */}
       <span className="text-[10px] text-gray-400 mt-0.5">{Math.round(value)}%</span>
     </div>
   );
