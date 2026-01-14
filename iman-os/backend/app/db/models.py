@@ -25,6 +25,7 @@ class Campaign(Base):
     client_name = Column(String(255), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow)
     last_synced_at = Column(DateTime, nullable=True)
+    is_hidden = Column(Boolean, default=False, index=True)
 
     # Relationships
     daily_stats = relationship("CampaignDailyStats", back_populates="campaign", cascade="all, delete-orphan")

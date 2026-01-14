@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { BarChart3, Activity, AlertTriangle, Clock, ChevronDown } from 'lucide-react';
+import { BarChart3, Activity, AlertTriangle, Clock, ChevronDown, Minus, Plus, Eye, EyeOff } from 'lucide-react';
 import { PageHeader } from '../components/layout';
 import {
   StatsCard,
@@ -75,9 +75,12 @@ function CampaignTable({
   isLoading,
   onStatusChange,
   onApply,
+  onToggleHide,
   updatingStatus,
   applying,
-  emptyMessage = "No campaigns found."
+  hidingId,
+  emptyMessage = "No campaigns found.",
+  showUnhide = false,
 }) {
   return (
     <div className="bg-card rounded-lg overflow-hidden">
@@ -85,6 +88,7 @@ function CampaignTable({
         <table className="w-full">
           <thead className="bg-secondary">
             <tr>
+              <th className="w-8 px-2 py-3"></th>
               <th className="text-left px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">Campaign</th>
               <th className="text-left px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">Created</th>
               <th className="text-left px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">Status</th>
@@ -103,13 +107,13 @@ function CampaignTable({
           <tbody>
             {isLoading ? (
               <tr>
-                <td colSpan="13" className="px-4 py-12 text-center">
+                <td colSpan="14" className="px-4 py-12 text-center">
                   <LoadingSpinner size="lg" />
                 </td>
               </tr>
             ) : campaigns.length === 0 ? (
               <tr>
-                <td colSpan="13" className="px-4 py-12 text-center text-gray-500">
+                <td colSpan="14" className="px-4 py-12 text-center text-gray-500">
                   {emptyMessage}
                 </td>
               </tr>
@@ -131,8 +135,34 @@ function CampaignTable({
                 return (
                   <tr
                     key={campaign.id}
-                    className="border-t border-gray-800 hover:bg-secondary/30 transition-colors"
+                    className="border-t border-gray-800 hover:bg-secondary/30 transition-colors group"
                   >
+                    {/* Hide/Unhide Button */}
+                    <td className="px-2 py-3">
+                      <button
+                        onClick={() => onToggleHide(campaign.id)}
+                        disabled={hidingId === campaign.id}
+                        className={`
+                          w-6 h-6 flex items-center justify-center rounded
+                          transition-all duration-200
+                          ${showUnhide
+                            ? 'text-gray-400 hover:text-success hover:bg-success/20'
+                            : 'text-gray-700 opacity-0 group-hover:opacity-100 hover:text-danger hover:bg-danger/20'
+                          }
+                          disabled:opacity-50 disabled:cursor-not-allowed
+                        `}
+                        title={showUnhide ? 'Unhide campaign' : 'Hide campaign'}
+                      >
+                        {hidingId === campaign.id ? (
+                          <LoadingSpinner size="sm" />
+                        ) : showUnhide ? (
+                          <Plus size={14} />
+                        ) : (
+                          <Minus size={14} />
+                        )}
+                      </button>
+                    </td>
+
                     {/* Campaign Name */}
                     <td className="px-4 py-3">
                       <div className="font-medium text-white text-sm truncate max-w-[200px]" title={campaign.name}>
@@ -261,6 +291,8 @@ export default function CampaignHealth() {
   const [clientFilter, setClientFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [onlySuggestions, setOnlySuggestions] = useState(false);
+  const [showHidden, setShowHidden] = useState(false);
+  const [hidingId, setHidingId] = useState(null);
 
   // API calls
   const {
@@ -269,6 +301,13 @@ export default function CampaignHealth() {
     error: campaignsError,
     execute: refreshCampaigns,
   } = useApi(() => api.getCampaigns({ only_suggestions: onlySuggestions }), [onlySuggestions]);
+
+  // Fetch hidden campaigns
+  const {
+    data: hiddenCampaignsData,
+    loading: hiddenLoading,
+    execute: refreshHiddenCampaigns,
+  } = useApi(() => api.getHiddenCampaigns(), []);
 
   const { data: overviewData, execute: refreshOverview } = useApi(
     () => api.getOverview(7),
@@ -282,12 +321,13 @@ export default function CampaignHealth() {
   const { execute: updateStatus, loading: updatingStatus } = useMutation(
     (campaignId, status) => api.updateCampaignStatus(campaignId, status)
   );
+  const { execute: toggleHidden } = useMutation(api.toggleCampaignHidden);
 
   // Refresh all data
   const handleRefresh = async () => {
     try {
       await triggerSync();
-      await Promise.all([refreshCampaigns(), refreshOverview(), refreshSyncStatus()]);
+      await Promise.all([refreshCampaigns(), refreshOverview(), refreshSyncStatus(), refreshHiddenCampaigns()]);
     } catch (err) {
       console.error('Sync failed:', err);
     }
@@ -315,6 +355,19 @@ export default function CampaignHealth() {
       await refreshCampaigns();
     } catch (err) {
       console.error('Failed to update status:', err);
+    }
+  };
+
+  // Toggle hide campaign
+  const handleToggleHide = async (campaignId) => {
+    try {
+      setHidingId(campaignId);
+      await toggleHidden(campaignId);
+      await Promise.all([refreshCampaigns(), refreshHiddenCampaigns()]);
+    } catch (err) {
+      console.error('Failed to toggle hide:', err);
+    } finally {
+      setHidingId(null);
     }
   };
 
@@ -348,6 +401,17 @@ export default function CampaignHealth() {
 
     return { regularCampaigns: regular, followUpCampaigns: followUp };
   }, [campaignsData, search, clientFilter, statusFilter]);
+
+  // Filter hidden campaigns
+  const { hiddenRegularCampaigns, hiddenFollowUpCampaigns } = useMemo(() => {
+    const hidden = hiddenCampaignsData?.campaigns || [];
+    return {
+      hiddenRegularCampaigns: hidden.filter((c) => !isFollowUpCampaign(c)),
+      hiddenFollowUpCampaigns: hidden.filter((c) => isFollowUpCampaign(c)),
+    };
+  }, [hiddenCampaignsData]);
+
+  const totalHidden = (hiddenCampaignsData?.campaigns || []).length;
 
   // Get unique clients for filter dropdown
   const clients = useMemo(() => {
@@ -450,8 +514,10 @@ export default function CampaignHealth() {
           isLoading={isLoading}
           onStatusChange={handleStatusChange}
           onApply={handleApply}
+          onToggleHide={handleToggleHide}
           updatingStatus={updatingStatus}
           applying={applying}
+          hidingId={hidingId}
           emptyMessage="No main campaigns found. Run a sync to fetch campaigns from Smartlead."
         />
       </div>
@@ -473,8 +539,10 @@ export default function CampaignHealth() {
           isLoading={isLoading}
           onStatusChange={handleStatusChange}
           onApply={handleApply}
+          onToggleHide={handleToggleHide}
           updatingStatus={updatingStatus}
           applying={applying}
+          hidingId={hidingId}
           emptyMessage="No follow-up campaigns found."
         />
       </div>
@@ -483,6 +551,67 @@ export default function CampaignHealth() {
       <div className="mt-4 text-sm text-gray-500 text-right">
         Showing {followUpCampaigns.length} follow-up campaigns
       </div>
+
+      {/* Hidden Campaigns Section */}
+      {totalHidden > 0 && (
+        <>
+          <div className="border-t-2 border-gray-700 my-10"></div>
+
+          <div className="mb-4">
+            <button
+              onClick={() => setShowHidden(!showHidden)}
+              className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors"
+            >
+              {showHidden ? <EyeOff size={20} /> : <Eye size={20} />}
+              <span className="text-lg font-medium">
+                {showHidden ? 'Hide' : 'Show'} Hidden Campaigns ({totalHidden})
+              </span>
+            </button>
+          </div>
+
+          {showHidden && (
+            <>
+              {/* Hidden Main Campaigns */}
+              {hiddenRegularCampaigns.length > 0 && (
+                <div className="mb-8">
+                  <h3 className="text-lg font-semibold text-gray-400 mb-4">Hidden Main Campaigns</h3>
+                  <CampaignTable
+                    campaigns={hiddenRegularCampaigns}
+                    isLoading={hiddenLoading}
+                    onStatusChange={handleStatusChange}
+                    onApply={handleApply}
+                    onToggleHide={handleToggleHide}
+                    updatingStatus={updatingStatus}
+                    applying={applying}
+                    hidingId={hidingId}
+                    emptyMessage="No hidden main campaigns."
+                    showUnhide={true}
+                  />
+                </div>
+              )}
+
+              {/* Hidden Follow-up Campaigns */}
+              {hiddenFollowUpCampaigns.length > 0 && (
+                <div className="mb-4">
+                  <h3 className="text-lg font-semibold text-gray-400 mb-4">Hidden Follow-up Campaigns</h3>
+                  <CampaignTable
+                    campaigns={hiddenFollowUpCampaigns}
+                    isLoading={hiddenLoading}
+                    onStatusChange={handleStatusChange}
+                    onApply={handleApply}
+                    onToggleHide={handleToggleHide}
+                    updatingStatus={updatingStatus}
+                    applying={applying}
+                    hidingId={hidingId}
+                    emptyMessage="No hidden follow-up campaigns."
+                    showUnhide={true}
+                  />
+                </div>
+              )}
+            </>
+          )}
+        </>
+      )}
     </div>
   );
 }

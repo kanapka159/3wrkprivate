@@ -38,6 +38,12 @@ export const api = {
   updateCampaignStatus: (campaignId, status) =>
     request(`/campaigns/${campaignId}/status?status=${status}`, { method: 'POST' }),
 
+  toggleCampaignHidden: (campaignId) =>
+    request(`/campaigns/${campaignId}/hide`, { method: 'POST' }),
+
+  getHiddenCampaigns: () =>
+    request('/campaigns?only_hidden=true'),
+
   // Stats
   getOverview: (days = 7) => request(`/stats/overview?days=${days}`),
 

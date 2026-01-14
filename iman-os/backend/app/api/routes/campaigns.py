@@ -63,6 +63,8 @@ async def list_campaigns(
     status: Optional[str] = Query(None, description="Filter by status"),
     client_id: Optional[int] = Query(None, description="Filter by client ID"),
     only_suggestions: bool = Query(False, description="Only show campaigns needing action"),
+    include_hidden: bool = Query(False, description="Include hidden campaigns"),
+    only_hidden: bool = Query(False, description="Only show hidden campaigns"),
     limit: int = Query(100, ge=1, le=500),
     offset: int = Query(0, ge=0),
     db: AsyncSession = Depends(get_db),
@@ -74,6 +76,8 @@ async def list_campaigns(
     - status: Filter by campaign status (STARTED, PAUSED, STOPPED)
     - client_id: Filter by client ID
     - only_suggestions: Only return campaigns that need action
+    - include_hidden: Include hidden campaigns in results
+    - only_hidden: Only return hidden campaigns
     """
     # Build subquery for aggregated stats
     stats_subquery = (
@@ -94,6 +98,12 @@ async def list_campaigns(
         select(Campaign, stats_subquery)
         .outerjoin(stats_subquery, Campaign.id == stats_subquery.c.campaign_id)
     )
+
+    # Filter by hidden status
+    if only_hidden:
+        query = query.where(Campaign.is_hidden == True)
+    elif not include_hidden:
+        query = query.where(Campaign.is_hidden == False)
 
     if status:
         query = query.where(Campaign.status == status.upper())
@@ -148,6 +158,7 @@ async def list_campaigns(
             "status": campaign.status,
             "client_id": campaign.client_id,
             "client_name": campaign.client_name,
+            "is_hidden": campaign.is_hidden or False,
             "last_synced_at": campaign.last_synced_at.isoformat() if campaign.last_synced_at else None,
             "created_at": campaign.created_at.isoformat() if campaign.created_at else None,
             "stats": {
@@ -302,6 +313,33 @@ async def update_campaign_status(
 
     except SmartleadAPIError as e:
         raise HTTPException(status_code=e.status_code or 500, detail=e.message)
+
+
+@router.post("/{campaign_id}/hide")
+async def toggle_campaign_hidden(
+    campaign_id: int,
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Toggle the hidden state of a campaign.
+    """
+    result = await db.execute(
+        select(Campaign).where(Campaign.id == campaign_id)
+    )
+    campaign = result.scalar_one_or_none()
+
+    if not campaign:
+        raise HTTPException(status_code=404, detail="Campaign not found")
+
+    # Toggle hidden state
+    campaign.is_hidden = not (campaign.is_hidden or False)
+    await db.commit()
+
+    return {
+        "message": f"Campaign {'hidden' if campaign.is_hidden else 'unhidden'}",
+        "campaign_id": campaign_id,
+        "is_hidden": campaign.is_hidden,
+    }
 
 
 @router.get("/{campaign_id}/sequences")
