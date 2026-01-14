@@ -11,7 +11,6 @@ export default function FilterBar({
   onStatusFilterChange,
   onlySuggestions,
   onOnlySuggestionsChange,
-  lastSync,
   onRefresh,
   isLoading = false,
 }) {
@@ -68,13 +67,6 @@ export default function FilterBar({
         />
         <span className="text-sm text-gray-400">Needs Action</span>
       </label>
-
-      {/* Last Sync */}
-      {lastSync && (
-        <span className="text-sm text-gray-500">
-          Last sync: {lastSync}
-        </span>
-      )}
 
       {/* Sync Button */}
       <div className="ml-auto">

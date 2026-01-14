@@ -101,21 +101,25 @@ function StatusDropdown({ status, campaignId, onStatusChange, disabled }) {
   );
 }
 
-// Sortable header component
-function SortableHeader({ label, field, sortField, sortDirection, onSort, align = 'left' }) {
+// Sortable header component with two-line support
+function SortableHeader({ label, subLabel, field, sortField, sortDirection, onSort, align = 'left', minWidth }) {
   const isActive = sortField === field;
-  const alignClass = align === 'right' ? 'text-right justify-end' : 'text-left';
+  const alignClass = align === 'right' ? 'text-right' : 'text-left';
 
   return (
     <th
-      className={`px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider cursor-pointer hover:text-white transition-colors ${alignClass}`}
+      className={`px-3 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider cursor-pointer hover:text-white transition-colors ${alignClass}`}
       onClick={() => onSort(field)}
+      style={minWidth ? { minWidth } : {}}
     >
-      <div className={`flex items-center gap-1 ${align === 'right' ? 'justify-end' : ''}`}>
-        <span>{label}</span>
-        {isActive && (
-          sortDirection === 'asc' ? <ChevronUp size={14} /> : <ChevronDown size={14} />
-        )}
+      <div className={`flex flex-col ${align === 'right' ? 'items-end' : 'items-start'}`}>
+        <div className={`flex items-center gap-1 ${align === 'right' ? 'justify-end' : ''}`}>
+          <span>{label}</span>
+          {isActive && (
+            sortDirection === 'asc' ? <ChevronUp size={12} /> : <ChevronDown size={12} />
+          )}
+        </div>
+        {subLabel && <span className="text-gray-500 text-[10px]">{subLabel}</span>}
       </div>
     </th>
   );
@@ -126,10 +130,8 @@ function CampaignTable({
   campaigns,
   isInitialLoading,
   onStatusChange,
-  onApply,
   onToggleHide,
   updatingStatus,
-  applying,
   hidingId,
   emptyMessage = "No campaigns found.",
   showUnhide = false,
@@ -137,6 +139,7 @@ function CampaignTable({
   isRefreshing = false,
   title,
   titleColor = 'white',
+  lastRefreshed,
 }) {
   const [sortField, setSortField] = useState(null);
   const [sortDirection, setSortDirection] = useState('desc');
@@ -198,6 +201,10 @@ function CampaignTable({
           aVal = a.stats?.positive_rate || 0;
           bVal = b.stats?.positive_rate || 0;
           break;
+        case 'warnings':
+          aVal = a.warnings?.length || 0;
+          bVal = b.warnings?.length || 0;
+          break;
         default:
           return 0;
       }
@@ -216,18 +223,23 @@ function CampaignTable({
 
   return (
     <div className="mb-4">
-      {/* Table Header with Title and Refresh */}
-      <div className="flex items-center justify-between mb-4">
+      {/* Table Header with Title, Refresh, and Last Updated */}
+      <div className="flex items-center gap-3 mb-4">
         <h2 className={`text-3xl font-bold text-${titleColor}`}>{title}</h2>
         {onRefreshTable && (
           <button
             onClick={onRefreshTable}
             disabled={isRefreshing}
-            className="p-2 rounded-lg hover:bg-secondary transition-colors disabled:opacity-50"
+            className="p-1.5 rounded-lg hover:bg-secondary transition-colors disabled:opacity-50"
             title="Refresh this table"
           >
-            <RefreshCw size={18} className={`text-gray-400 hover:text-white ${isRefreshing ? 'animate-spin' : ''}`} />
+            <RefreshCw size={16} className={`text-gray-400 hover:text-white ${isRefreshing ? 'animate-spin' : ''}`} />
           </button>
+        )}
+        {lastRefreshed && (
+          <span className="text-sm text-gray-500 ml-2">
+            Last updated: {lastRefreshed}
+          </span>
         )}
       </div>
 
@@ -237,31 +249,29 @@ function CampaignTable({
             <thead className="bg-secondary">
               <tr>
                 <th className="w-8 px-2 py-3"></th>
-                <SortableHeader label="Campaign" field="name" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} />
-                <SortableHeader label="Created" field="created" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} />
-                <SortableHeader label="Status" field="status" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} />
-                <SortableHeader label="Suggested" field="suggestion" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} />
-                <SortableHeader label="7D Sent" field="7d_sent" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="right" />
-                <SortableHeader label="7D Reply" field="7d_rate" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="right" />
-                <SortableHeader label="14D Sent" field="14d_sent" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="right" />
-                <SortableHeader label="14D Reply" field="14d_rate" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="right" />
-                <SortableHeader label="28D Reply" field="28d_rate" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="right" />
-                <SortableHeader label="Positive" field="positive" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="right" />
-                <th className="text-left px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">Warnings</th>
-                <th className="text-left px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">Last Sync</th>
-                <th className="text-right px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">Action</th>
+                <SortableHeader label="Campaign" subLabel="Name" field="name" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} minWidth="180px" />
+                <SortableHeader label="Created" field="created" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} minWidth="100px" />
+                <SortableHeader label="Status" field="status" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} minWidth="100px" />
+                <SortableHeader label="7D" subLabel="Sent" field="7d_sent" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="right" minWidth="70px" />
+                <SortableHeader label="7D Reply" subLabel="Ratio" field="7d_rate" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="right" minWidth="80px" />
+                <SortableHeader label="14D" subLabel="Sent" field="14d_sent" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="right" minWidth="70px" />
+                <SortableHeader label="14D Reply" subLabel="Ratio" field="14d_rate" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="right" minWidth="85px" />
+                <SortableHeader label="28D Reply" subLabel="Ratio" field="28d_rate" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="right" minWidth="85px" />
+                <SortableHeader label="Positive" subLabel="Reply Ratio" field="positive" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="right" minWidth="90px" />
+                <SortableHeader label="Suggested" field="suggestion" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} minWidth="100px" />
+                <SortableHeader label="Warnings" field="warnings" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} minWidth="120px" />
               </tr>
             </thead>
             <tbody>
               {showLoadingSpinner ? (
                 <tr>
-                  <td colSpan="14" className="px-4 py-12 text-center">
+                  <td colSpan="12" className="px-4 py-12 text-center">
                     <LoadingSpinner size="lg" />
                   </td>
                 </tr>
               ) : sortedCampaigns.length === 0 ? (
                 <tr>
-                  <td colSpan="14" className="px-4 py-12 text-center text-gray-500">
+                  <td colSpan="12" className="px-4 py-12 text-center text-gray-500">
                     {emptyMessage}
                   </td>
                 </tr>
@@ -312,21 +322,21 @@ function CampaignTable({
                       </td>
 
                       {/* Campaign Name */}
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-3">
                         <div className="font-medium text-white text-sm truncate max-w-[200px]" title={campaign.name}>
                           {campaign.name}
                         </div>
                       </td>
 
                       {/* Created Date */}
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-3">
                         <span className="text-gray-400 text-sm">
                           {createdDate}
                         </span>
                       </td>
 
                       {/* Status with dropdown */}
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-3">
                         <StatusDropdown
                           status={campaign.status}
                           campaignId={campaign.id}
@@ -335,8 +345,50 @@ function CampaignTable({
                         />
                       </td>
 
+                      {/* 7D Sent */}
+                      <td className="px-3 py-3 text-right">
+                        <span className="text-white text-sm">
+                          {formatNumber(periods['7_days']?.sent_count || stats.sent_count || 0)}
+                        </span>
+                      </td>
+
+                      {/* 7D Reply Ratio */}
+                      <td className="px-3 py-3 text-right">
+                        <span className={`text-sm font-medium ${getRateColor(periods['7_days']?.reply_rate || stats.reply_rate || 0)}`}>
+                          {formatPercent(periods['7_days']?.reply_rate || stats.reply_rate || 0)}
+                        </span>
+                      </td>
+
+                      {/* 14D Sent */}
+                      <td className="px-3 py-3 text-right">
+                        <span className="text-white text-sm">
+                          {formatNumber(periods['14_days']?.sent_count || 0)}
+                        </span>
+                      </td>
+
+                      {/* 14D Reply Ratio */}
+                      <td className="px-3 py-3 text-right">
+                        <span className={`text-sm font-medium ${getRateColor(periods['14_days']?.reply_rate || 0)}`}>
+                          {formatPercent(periods['14_days']?.reply_rate || 0)}
+                        </span>
+                      </td>
+
+                      {/* 28D Reply Ratio */}
+                      <td className="px-3 py-3 text-right">
+                        <span className={`text-sm font-medium ${getRateColor(periods['28_days']?.reply_rate || 0)}`}>
+                          {formatPercent(periods['28_days']?.reply_rate || 0)}
+                        </span>
+                      </td>
+
+                      {/* Positive Reply Ratio */}
+                      <td className="px-3 py-3 text-right">
+                        <span className="text-gray-400 text-sm">
+                          {formatPercent(stats.positive_rate || 0)}
+                        </span>
+                      </td>
+
                       {/* Suggestion */}
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-3">
                         {suggestion.suggestion ? (
                           <SuggestionBadge
                             suggestion={suggestion.suggestion}
@@ -347,50 +399,8 @@ function CampaignTable({
                         )}
                       </td>
 
-                      {/* 7D Sent */}
-                      <td className="px-4 py-3 text-right">
-                        <span className="text-white text-sm">
-                          {formatNumber(periods['7_days']?.sent_count || stats.sent_count || 0)}
-                        </span>
-                      </td>
-
-                      {/* 7D Reply */}
-                      <td className="px-4 py-3 text-right">
-                        <span className={`text-sm font-medium ${getRateColor(periods['7_days']?.reply_rate || stats.reply_rate || 0)}`}>
-                          {formatPercent(periods['7_days']?.reply_rate || stats.reply_rate || 0)}
-                        </span>
-                      </td>
-
-                      {/* 14D Sent */}
-                      <td className="px-4 py-3 text-right">
-                        <span className="text-white text-sm">
-                          {formatNumber(periods['14_days']?.sent_count || 0)}
-                        </span>
-                      </td>
-
-                      {/* 14D Reply */}
-                      <td className="px-4 py-3 text-right">
-                        <span className={`text-sm font-medium ${getRateColor(periods['14_days']?.reply_rate || 0)}`}>
-                          {formatPercent(periods['14_days']?.reply_rate || 0)}
-                        </span>
-                      </td>
-
-                      {/* 28D Reply */}
-                      <td className="px-4 py-3 text-right">
-                        <span className={`text-sm font-medium ${getRateColor(periods['28_days']?.reply_rate || 0)}`}>
-                          {formatPercent(periods['28_days']?.reply_rate || 0)}
-                        </span>
-                      </td>
-
-                      {/* Positive Rate */}
-                      <td className="px-4 py-3 text-right">
-                        <span className="text-gray-400 text-sm">
-                          {formatPercent(stats.positive_rate || 0)}
-                        </span>
-                      </td>
-
                       {/* Warnings */}
-                      <td className="px-4 py-3">
+                      <td className="px-3 py-3">
                         <div className="flex flex-wrap gap-1">
                           {campaign.warnings?.length > 0 ? (
                             campaign.warnings.map((warning, i) => (
@@ -400,27 +410,6 @@ function CampaignTable({
                             <span className="text-gray-600">-</span>
                           )}
                         </div>
-                      </td>
-
-                      {/* Last Sync */}
-                      <td className="px-4 py-3">
-                        <span className="text-gray-500 text-sm">
-                          {timeAgo(campaign.last_synced_at)}
-                        </span>
-                      </td>
-
-                      {/* Action */}
-                      <td className="px-4 py-3 text-right">
-                        {suggestion.color && suggestion.color !== 'green' && suggestion.color !== 'gray' && (
-                          <Button
-                            size="sm"
-                            variant={suggestion.color === 'red' ? 'danger' : 'secondary'}
-                            onClick={() => onApply(campaign.id, suggestion.suggestion === 'KILL' ? 'STOP' : 'PAUSE')}
-                            disabled={applying}
-                          >
-                            + Apply
-                          </Button>
-                        )}
                       </td>
                     </tr>
                   );
@@ -450,6 +439,7 @@ export default function CampaignHealth() {
   const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
   const [refreshingMain, setRefreshingMain] = useState(false);
   const [refreshingFollowUp, setRefreshingFollowUp] = useState(false);
+  const [lastRefreshTime, setLastRefreshTime] = useState(null);
 
   // API calls
   const {
@@ -479,7 +469,6 @@ export default function CampaignHealth() {
   const { data: syncStatus, execute: refreshSyncStatus } = useApi(api.getSyncStatus, []);
 
   const { execute: triggerSync, loading: syncing } = useMutation(api.triggerSync);
-  const { execute: applySuggestion, loading: applying } = useMutation(api.applySuggestion);
   const { execute: updateStatus, loading: updatingStatus } = useMutation(
     (campaignId, status) => api.updateCampaignStatus(campaignId, status)
   );
@@ -494,6 +483,7 @@ export default function CampaignHealth() {
     try {
       await triggerSync();
       await Promise.all([refreshCampaigns(), refreshOverview(), refreshSyncStatus(), refreshHiddenCampaigns()]);
+      setLastRefreshTime(new Date());
     } catch (err) {
       console.error('Sync failed:', err);
     }
@@ -504,6 +494,7 @@ export default function CampaignHealth() {
     setRefreshingMain(true);
     try {
       await refreshCampaigns();
+      setLastRefreshTime(new Date());
     } catch (err) {
       console.error('Refresh failed:', err);
     } finally {
@@ -516,20 +507,11 @@ export default function CampaignHealth() {
     setRefreshingFollowUp(true);
     try {
       await refreshCampaigns();
+      setLastRefreshTime(new Date());
     } catch (err) {
       console.error('Refresh failed:', err);
     } finally {
       setRefreshingFollowUp(false);
-    }
-  };
-
-  // Apply suggestion
-  const handleApply = async (campaignId, action) => {
-    try {
-      await applySuggestion(campaignId, action);
-      await refreshCampaigns();
-    } catch (err) {
-      console.error('Failed to apply:', err);
     }
   };
 
@@ -624,6 +606,10 @@ export default function CampaignHealth() {
     };
   }, [campaignsData]);
 
+  // Format last refresh time
+  const formattedLastRefresh = lastRefreshTime ? timeAgo(lastRefreshTime.toISOString()) :
+    (syncStatus?.last_sync?.completed_at ? timeAgo(syncStatus.last_sync.completed_at) : null);
+
   return (
     <div>
       {/* Syncing Banner - shows at top when refreshing */}
@@ -669,7 +655,7 @@ export default function CampaignHealth() {
         />
       </div>
 
-      {/* Filter Bar - only Sync button, removed redundant Run Analytics */}
+      {/* Filter Bar */}
       <FilterBar
         search={search}
         onSearchChange={setSearch}
@@ -680,7 +666,6 @@ export default function CampaignHealth() {
         onStatusFilterChange={setStatusFilter}
         onlySuggestions={onlySuggestions}
         onOnlySuggestionsChange={setOnlySuggestions}
-        lastSync={timeAgo(syncStatus?.last_sync?.completed_at)}
         onRefresh={handleRefresh}
         isLoading={isSyncing}
       />
@@ -697,16 +682,15 @@ export default function CampaignHealth() {
         campaigns={regularCampaigns}
         isInitialLoading={isInitialLoading}
         onStatusChange={handleStatusChange}
-        onApply={handleApply}
         onToggleHide={handleToggleHide}
         updatingStatus={updatingStatus}
-        applying={applying}
         hidingId={hidingId}
         emptyMessage="No main campaigns found. Click 'Sync Campaigns' to fetch from Smartlead."
         title="MAIN CAMPAIGNS"
         titleColor="accent"
         onRefreshTable={handleRefreshMainTable}
         isRefreshing={refreshingMain}
+        lastRefreshed={formattedLastRefresh}
       />
 
       {/* Divider */}
@@ -717,16 +701,15 @@ export default function CampaignHealth() {
         campaigns={followUpCampaigns}
         isInitialLoading={isInitialLoading}
         onStatusChange={handleStatusChange}
-        onApply={handleApply}
         onToggleHide={handleToggleHide}
         updatingStatus={updatingStatus}
-        applying={applying}
         hidingId={hidingId}
         emptyMessage="No follow-up campaigns found."
         title="FOLLOW-UP CAMPAIGNS"
         titleColor="accent"
         onRefreshTable={handleRefreshFollowUpTable}
         isRefreshing={refreshingFollowUp}
+        lastRefreshed={formattedLastRefresh}
       />
 
       {/* Hidden Campaigns Section */}
@@ -754,15 +737,14 @@ export default function CampaignHealth() {
                   campaigns={hiddenRegularCampaigns}
                   isInitialLoading={hiddenLoading && hiddenRegularCampaigns.length === 0}
                   onStatusChange={handleStatusChange}
-                  onApply={handleApply}
                   onToggleHide={handleToggleHide}
                   updatingStatus={updatingStatus}
-                  applying={applying}
                   hidingId={hidingId}
                   emptyMessage="No hidden main campaigns."
                   showUnhide={true}
                   title="Hidden Main Campaigns"
                   titleColor="gray-400"
+                  lastRefreshed={formattedLastRefresh}
                 />
               )}
 
@@ -772,15 +754,14 @@ export default function CampaignHealth() {
                   campaigns={hiddenFollowUpCampaigns}
                   isInitialLoading={hiddenLoading && hiddenFollowUpCampaigns.length === 0}
                   onStatusChange={handleStatusChange}
-                  onApply={handleApply}
                   onToggleHide={handleToggleHide}
                   updatingStatus={updatingStatus}
-                  applying={applying}
                   hidingId={hidingId}
                   emptyMessage="No hidden follow-up campaigns."
                   showUnhide={true}
                   title="Hidden Follow-up Campaigns"
                   titleColor="gray-400"
+                  lastRefreshed={formattedLastRefresh}
                 />
               )}
             </>
