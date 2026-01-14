@@ -1,5 +1,5 @@
-import { useState, useEffect, useMemo } from 'react';
-import { BarChart3, Activity, AlertTriangle, Clock, ChevronDown } from 'lucide-react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { BarChart3, Activity, AlertTriangle, Clock, ChevronDown, GripVertical } from 'lucide-react';
 import { PageHeader } from '../components/layout';
 import {
   StatsCard,
@@ -13,6 +13,45 @@ import {
 import { useApi, useMutation } from '../hooks/useApi';
 import { api } from '../utils/api';
 import { formatNumber, formatPercent, timeAgo } from '../utils/formatters';
+
+// Resizable column hook
+function useResizableColumn(initialWidth = 200, minWidth = 100, maxWidth = 500) {
+  const [width, setWidth] = useState(initialWidth);
+  const [isResizing, setIsResizing] = useState(false);
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(0);
+
+  const handleMouseDown = useCallback((e) => {
+    e.preventDefault();
+    setIsResizing(true);
+    startXRef.current = e.clientX;
+    startWidthRef.current = width;
+  }, [width]);
+
+  useEffect(() => {
+    if (!isResizing) return;
+
+    const handleMouseMove = (e) => {
+      const delta = e.clientX - startXRef.current;
+      const newWidth = Math.min(maxWidth, Math.max(minWidth, startWidthRef.current + delta));
+      setWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      setIsResizing(false);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+
+    return () => {
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+  }, [isResizing, minWidth, maxWidth]);
+
+  return { width, handleMouseDown, isResizing };
+}
 
 // Rate color helper
 function getRateColor(rate) {
@@ -69,6 +108,9 @@ export default function CampaignHealth() {
   const [clientFilter, setClientFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
   const [onlySuggestions, setOnlySuggestions] = useState(false);
+
+  // Resizable campaign name column
+  const campaignColumn = useResizableColumn(220, 120, 600);
 
   // API calls
   const {
@@ -236,24 +278,37 @@ export default function CampaignHealth() {
       )}
 
       {/* Data Table */}
-      <div className="bg-card rounded-lg overflow-hidden">
+      <div className="bg-card rounded-lg overflow-hidden border border-gray-800/50">
         <div className="overflow-x-auto">
-          <table className="w-full">
-            <thead className="bg-secondary">
+          <table className="w-full border-collapse">
+            <thead className="bg-secondary/80">
               <tr>
-                <th className="text-left px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">Campaign</th>
-                <th className="text-left px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">Client</th>
-                <th className="text-left px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">Status</th>
-                <th className="text-left px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">Suggested</th>
-                <th className="text-right px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">7D Sent</th>
-                <th className="text-right px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">7D Rate</th>
-                <th className="text-right px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">14D Sent</th>
-                <th className="text-right px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">14D Rate</th>
-                <th className="text-right px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">28D Rate</th>
-                <th className="text-right px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">Pos Rate</th>
-                <th className="text-left px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">Warnings</th>
-                <th className="text-left px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">Last Sync</th>
-                <th className="text-right px-4 py-3 text-gray-400 text-xs font-medium uppercase tracking-wider">Action</th>
+                <th
+                  className="text-left px-4 py-3 text-gray-500 text-xs font-medium uppercase tracking-wider relative"
+                  style={{ width: campaignColumn.width, minWidth: campaignColumn.width }}
+                >
+                  <div className="flex items-center justify-between">
+                    <span>Campaign</span>
+                    <div
+                      className="absolute right-0 top-0 bottom-0 w-4 cursor-col-resize flex items-center justify-center hover:bg-gray-700/50 transition-colors"
+                      onMouseDown={campaignColumn.handleMouseDown}
+                    >
+                      <GripVertical size={12} className="text-gray-600" />
+                    </div>
+                  </div>
+                </th>
+                <th className="text-left px-4 py-3 text-gray-500 text-xs font-medium uppercase tracking-wider">Client</th>
+                <th className="text-left px-4 py-3 text-gray-500 text-xs font-medium uppercase tracking-wider">Status</th>
+                <th className="text-left px-4 py-3 text-gray-500 text-xs font-medium uppercase tracking-wider">Suggested</th>
+                <th className="text-right px-4 py-3 text-gray-500 text-xs font-medium uppercase tracking-wider">7D Sent</th>
+                <th className="text-right px-4 py-3 text-gray-500 text-xs font-medium uppercase tracking-wider">7D Rate</th>
+                <th className="text-right px-4 py-3 text-gray-500 text-xs font-medium uppercase tracking-wider">14D Sent</th>
+                <th className="text-right px-4 py-3 text-gray-500 text-xs font-medium uppercase tracking-wider">14D Rate</th>
+                <th className="text-right px-4 py-3 text-gray-500 text-xs font-medium uppercase tracking-wider">28D Rate</th>
+                <th className="text-right px-4 py-3 text-gray-500 text-xs font-medium uppercase tracking-wider">Pos Rate</th>
+                <th className="text-left px-4 py-3 text-gray-500 text-xs font-medium uppercase tracking-wider">Warnings</th>
+                <th className="text-left px-4 py-3 text-gray-500 text-xs font-medium uppercase tracking-wider">Last Sync</th>
+                <th className="text-right px-4 py-3 text-gray-500 text-xs font-medium uppercase tracking-wider">Action</th>
               </tr>
             </thead>
             <tbody>
@@ -270,7 +325,7 @@ export default function CampaignHealth() {
                   </td>
                 </tr>
               ) : (
-                filteredCampaigns.map((campaign) => {
+                filteredCampaigns.map((campaign, index) => {
                   const stats = campaign.stats || {};
                   const suggestion = campaign.suggestion || {};
                   const periods = campaign.periods || {};
@@ -278,11 +333,18 @@ export default function CampaignHealth() {
                   return (
                     <tr
                       key={campaign.id}
-                      className="border-t border-gray-800 hover:bg-secondary/30 transition-colors"
+                      className="border-b border-gray-800/40 hover:bg-secondary/20 transition-colors"
                     >
-                      {/* Campaign Name */}
-                      <td className="px-4 py-3">
-                        <div className="font-medium text-white text-sm truncate max-w-[200px]" title={campaign.name}>
+                      {/* Campaign Name - Resizable */}
+                      <td
+                        className="px-4 py-3"
+                        style={{ width: campaignColumn.width, minWidth: campaignColumn.width, maxWidth: campaignColumn.width }}
+                      >
+                        <div
+                          className="font-medium text-gray-200 text-sm truncate"
+                          style={{ width: campaignColumn.width - 32 }}
+                          title={campaign.name}
+                        >
                           {campaign.name}
                         </div>
                       </td>
@@ -318,7 +380,7 @@ export default function CampaignHealth() {
 
                       {/* 7D Sent */}
                       <td className="px-4 py-3 text-right">
-                        <span className="text-white text-sm">
+                        <span className="text-gray-300 text-sm">
                           {formatNumber(periods['7_days']?.sent_count || stats.sent_count || 0)}
                         </span>
                       </td>
@@ -332,7 +394,7 @@ export default function CampaignHealth() {
 
                       {/* 14D Sent */}
                       <td className="px-4 py-3 text-right">
-                        <span className="text-white text-sm">
+                        <span className="text-gray-300 text-sm">
                           {formatNumber(periods['14_days']?.sent_count || stats.sent_count || 0)}
                         </span>
                       </td>
