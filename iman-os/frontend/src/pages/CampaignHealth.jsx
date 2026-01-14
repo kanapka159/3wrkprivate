@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { BarChart3, Activity, AlertTriangle, Clock, ChevronDown, ChevronUp, Minus, Plus, Eye, EyeOff, RefreshCw } from 'lucide-react';
+import { useState, useMemo, useRef, useCallback } from 'react';
+import { BarChart3, Activity, AlertTriangle, Clock, ChevronDown, ChevronUp, Minus, Plus, Eye, EyeOff, RefreshCw, GripVertical } from 'lucide-react';
 import { PageHeader } from '../components/layout';
 import {
   StatsCard,
@@ -113,7 +113,7 @@ function StatusDropdown({ status, campaignId, onStatusChange, disabled }) {
 }
 
 // Sortable header component with two-line support
-function SortableHeader({ label, subLabel, field, sortField, sortDirection, onSort, align = 'left', minWidth }) {
+function SortableHeader({ label, subLabel, field, sortField, sortDirection, onSort, align = 'left', minWidth, resizable = false }) {
   const isActive = sortField === field;
   const alignClass = align === 'center' ? 'text-center' : align === 'right' ? 'text-right' : 'text-left';
   const flexAlign = align === 'center' ? 'items-center' : align === 'right' ? 'items-end' : 'items-start';
@@ -121,7 +121,7 @@ function SortableHeader({ label, subLabel, field, sortField, sortDirection, onSo
 
   return (
     <th
-      className={`px-3 py-3 text-white text-xs font-semibold uppercase tracking-wider cursor-pointer hover:text-accent transition-colors ${alignClass}`}
+      className={`px-3 py-3 text-white text-xs font-semibold uppercase tracking-wider cursor-pointer hover:text-accent transition-colors ${alignClass} ${resizable ? 'resize-x overflow-auto' : ''}`}
       onClick={() => onSort(field)}
       style={minWidth ? { minWidth } : {}}
     >
@@ -129,7 +129,9 @@ function SortableHeader({ label, subLabel, field, sortField, sortDirection, onSo
         <div className={`flex items-center gap-1 ${justifyAlign}`}>
           <span>{label}</span>
           {isActive && (
-            sortDirection === 'asc' ? <ChevronUp size={12} className="text-accent" /> : <ChevronDown size={12} className="text-accent" />
+            sortDirection === 'asc'
+              ? <ChevronUp size={14} strokeWidth={3} className="text-accent" />
+              : <ChevronDown size={14} strokeWidth={3} className="text-accent" />
           )}
         </div>
         {subLabel && <span className="text-gray-400 text-[10px]">{subLabel}</span>}
@@ -157,6 +159,35 @@ function CampaignTable({
   // Default sort by status (Active first)
   const [sortField, setSortField] = useState('status');
   const [sortDirection, setSortDirection] = useState('asc');
+  const [nameColumnWidth, setNameColumnWidth] = useState(200);
+  const resizingRef = useRef(false);
+  const startXRef = useRef(0);
+  const startWidthRef = useRef(0);
+
+  // Handle resize drag
+  const handleResizeStart = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    resizingRef.current = true;
+    startXRef.current = e.clientX;
+    startWidthRef.current = nameColumnWidth;
+
+    const handleMouseMove = (moveE) => {
+      if (!resizingRef.current) return;
+      const delta = moveE.clientX - startXRef.current;
+      const newWidth = Math.max(120, Math.min(500, startWidthRef.current + delta));
+      setNameColumnWidth(newWidth);
+    };
+
+    const handleMouseUp = () => {
+      resizingRef.current = false;
+      document.removeEventListener('mousemove', handleMouseMove);
+      document.removeEventListener('mouseup', handleMouseUp);
+    };
+
+    document.addEventListener('mousemove', handleMouseMove);
+    document.addEventListener('mouseup', handleMouseUp);
+  }, [nameColumnWidth]);
 
   const handleSort = (field) => {
     if (sortField === field) {
@@ -252,8 +283,8 @@ function CampaignTable({
           </button>
         )}
         {lastRefreshed && (
-          <span className="text-sm text-gray-500 ml-2">
-            Last updated: {lastRefreshed}
+          <span className="text-xs text-gray-600 ml-4 italic opacity-70">
+            updated {lastRefreshed}
           </span>
         )}
       </div>
@@ -264,16 +295,42 @@ function CampaignTable({
             <thead className="bg-secondary">
               <tr>
                 <th className="w-8 px-2 py-3"></th>
-                <SortableHeader label="Campaign" subLabel="Name" field="name" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} minWidth="180px" />
+                {/* Resizable Campaign Name Column */}
+                <th
+                  className="px-3 py-3 text-white text-xs font-semibold uppercase tracking-wider cursor-pointer hover:text-accent transition-colors text-center relative"
+                  style={{ width: nameColumnWidth, minWidth: 120, maxWidth: 500 }}
+                >
+                  <div className="flex items-center justify-center gap-1" onClick={() => handleSort('name')}>
+                    <div className="flex flex-col items-center">
+                      <div className="flex items-center gap-1">
+                        <span>Campaign</span>
+                        {sortField === 'name' && (
+                          sortDirection === 'asc'
+                            ? <ChevronUp size={14} strokeWidth={3} className="text-accent" />
+                            : <ChevronDown size={14} strokeWidth={3} className="text-accent" />
+                        )}
+                      </div>
+                      <span className="text-gray-400 text-[10px]">Name</span>
+                    </div>
+                  </div>
+                  {/* Resize handle */}
+                  <div
+                    className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-accent/30 flex items-center justify-center group"
+                    onMouseDown={handleResizeStart}
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="w-0.5 h-4 bg-gray-600 group-hover:bg-accent rounded-full"></div>
+                  </div>
+                </th>
                 <SortableHeader label="Created" field="created" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} minWidth="100px" />
                 <SortableHeader label="Status" field="status" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} minWidth="100px" />
                 <SortableHeader label="7D" subLabel="Sent" field="7d_sent" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="70px" />
                 <SortableHeader label="7D Reply" subLabel="Ratio" field="7d_rate" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="90px" />
                 <SortableHeader label="14D" subLabel="Sent" field="14d_sent" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="70px" />
                 <SortableHeader label="14D Reply" subLabel="Ratio" field="14d_rate" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="95px" />
-                <SortableHeader label="28D Reply" subLabel="Ratio" field="28d_rate" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="left" minWidth="95px" />
+                <SortableHeader label="28D Reply" subLabel="Ratio" field="28d_rate" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="95px" />
                 <SortableHeader label="Positive" subLabel="Reply Ratio" field="positive" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="90px" />
-                <SortableHeader label="Suggested" field="suggestion" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} minWidth="100px" />
+                <SortableHeader label="Suggestions" field="suggestion" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} minWidth="100px" />
                 <SortableHeader label="Warnings" field="warnings" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} minWidth="120px" />
               </tr>
             </thead>
@@ -337,8 +394,12 @@ function CampaignTable({
                       </td>
 
                       {/* Campaign Name */}
-                      <td className="px-3 py-3">
-                        <div className="font-medium text-white text-sm truncate max-w-[200px]" title={campaign.name}>
+                      <td className="px-3 py-3 text-center" style={{ width: nameColumnWidth, minWidth: 120, maxWidth: 500 }}>
+                        <div
+                          className="font-medium text-white text-sm truncate mx-auto"
+                          style={{ maxWidth: nameColumnWidth - 24 }}
+                          title={campaign.name}
+                        >
                           {campaign.name}
                         </div>
                       </td>
@@ -389,7 +450,7 @@ function CampaignTable({
                       </td>
 
                       {/* 28D Reply Ratio */}
-                      <td className="px-3 py-3 text-left">
+                      <td className="px-3 py-3 text-center">
                         <span className={`text-sm font-bold ${getRateColor(periods['28_days']?.reply_rate || 0)}`}>
                           {formatPercent(periods['28_days']?.reply_rate || 0)}
                         </span>
