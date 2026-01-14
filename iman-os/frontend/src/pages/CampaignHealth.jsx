@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
-import { BarChart3, Activity, AlertTriangle, Clock, ChevronDown, GripVertical } from 'lucide-react';
+import { BarChart3, Activity, AlertTriangle, Clock, ChevronDown } from 'lucide-react';
 import { PageHeader } from '../components/layout';
 import {
   StatsCard,
@@ -77,10 +77,10 @@ function StatusDropdown({ status, campaignId, onStatusChange, disabled }) {
       <button
         onClick={() => setIsOpen(!isOpen)}
         disabled={disabled}
-        className="flex items-center gap-1 disabled:opacity-50"
+        className="flex items-center gap-1.5 disabled:opacity-50"
       >
         <StatusBadge status={status} />
-        <ChevronDown size={14} className="text-gray-500" />
+        <ChevronDown size={14} className="text-gray-400" strokeWidth={2.5} />
       </button>
       {isOpen && (
         <>
@@ -287,14 +287,15 @@ export default function CampaignHealth() {
                   className="text-left px-4 py-3 text-gray-500 text-xs font-medium uppercase tracking-wider relative"
                   style={{ width: campaignColumn.width, minWidth: campaignColumn.width }}
                 >
-                  <div className="flex items-center justify-between">
+                  <div className="flex items-center justify-between pr-3">
                     <span>Campaign</span>
-                    <div
-                      className="absolute right-0 top-0 bottom-0 w-4 cursor-col-resize flex items-center justify-center hover:bg-gray-700/50 transition-colors"
-                      onMouseDown={campaignColumn.handleMouseDown}
-                    >
-                      <GripVertical size={12} className="text-gray-600" />
-                    </div>
+                  </div>
+                  <div
+                    className="absolute right-0 top-0 bottom-0 w-3 cursor-col-resize flex items-center justify-center hover:bg-accent/30 transition-colors group"
+                    onMouseDown={campaignColumn.handleMouseDown}
+                    title="Drag to resize"
+                  >
+                    <div className="w-0.5 h-4 bg-gray-600 group-hover:bg-accent rounded-full transition-colors" />
                   </div>
                 </th>
                 <th className="text-left px-4 py-3 text-gray-500 text-xs font-medium uppercase tracking-wider">Client</th>
@@ -307,7 +308,7 @@ export default function CampaignHealth() {
                 <th className="text-right px-4 py-3 text-gray-500 text-xs font-medium uppercase tracking-wider">28D Rate</th>
                 <th className="text-right px-4 py-3 text-gray-500 text-xs font-medium uppercase tracking-wider">Pos Rate</th>
                 <th className="text-left px-4 py-3 text-gray-500 text-xs font-medium uppercase tracking-wider">Warnings</th>
-                <th className="text-left px-4 py-3 text-gray-500 text-xs font-medium uppercase tracking-wider">Last Sync</th>
+                <th className="text-left px-4 py-3 text-gray-600 text-xs font-normal tracking-wider opacity-60">Synced</th>
                 <th className="text-right px-4 py-3 text-gray-500 text-xs font-medium uppercase tracking-wider">Action</th>
               </tr>
             </thead>
@@ -337,15 +338,17 @@ export default function CampaignHealth() {
                     >
                       {/* Campaign Name - Resizable */}
                       <td
-                        className="px-4 py-3"
+                        className="px-4 py-3 align-middle"
                         style={{ width: campaignColumn.width, minWidth: campaignColumn.width, maxWidth: campaignColumn.width }}
                       >
-                        <div
-                          className="font-medium text-gray-200 text-sm truncate"
-                          style={{ width: campaignColumn.width - 32 }}
-                          title={campaign.name}
-                        >
-                          {campaign.name}
+                        <div className="flex items-center h-full">
+                          <div
+                            className="font-medium text-gray-200 text-sm truncate"
+                            style={{ width: campaignColumn.width - 32 }}
+                            title={campaign.name}
+                          >
+                            {campaign.name}
+                          </div>
                         </div>
                       </td>
 
@@ -435,7 +438,7 @@ export default function CampaignHealth() {
 
                       {/* Last Sync */}
                       <td className="px-4 py-3">
-                        <span className="text-gray-500 text-sm">
+                        <span className="text-gray-600 text-xs italic opacity-70">
                           {timeAgo(campaign.last_synced_at)}
                         </span>
                       </td>
