@@ -109,24 +109,23 @@ class SyncService:
                         campaign = await self._upsert_campaign(campaign_data)
                         await asyncio.sleep(API_DELAY)
 
-                        # 3b: Get aggregate analytics first (more reliable)
+                        # 3b: Get aggregate analytics for all-time totals
                         try:
                             aggregate_analytics = await client.get_campaign_analytics(smartlead_id)
                             await asyncio.sleep(API_DELAY)
-
-                            # Log the response to understand the format
                             logger.info(f"Aggregate analytics for campaign {smartlead_id}: {aggregate_analytics}")
 
-                            # Handle response format (could be dict with data or direct dict)
+                            # Extract and store all-time totals
                             if isinstance(aggregate_analytics, dict):
-                                analytics_data = aggregate_analytics.get("data", aggregate_analytics)
-                                if isinstance(analytics_data, dict):
-                                    # Store aggregate stats as today's entry
-                                    today = datetime.utcnow().strftime("%Y-%m-%d")
-                                    aggregate_with_date = {**analytics_data, "date": today}
-                                    await self._upsert_daily_stats(campaign.id, aggregate_with_date)
-                                    logger.info(f"Stored aggregate analytics for campaign {smartlead_id}")
-
+                                stats = aggregate_analytics.get("data", aggregate_analytics)
+                                if isinstance(stats, dict):
+                                    campaign.total_sent = self._safe_int(stats.get("sent_count") or stats.get("unique_sent_count") or stats.get("sent"))
+                                    campaign.total_replied = self._safe_int(stats.get("reply_count") or stats.get("unique_reply_count") or stats.get("replied"))
+                                    campaign.total_positive = self._safe_int(stats.get("positive_reply_count") or stats.get("positive_replies") or stats.get("positive"))
+                                    campaign.total_opens = self._safe_int(stats.get("open_count") or stats.get("unique_open_count") or stats.get("opens"))
+                                    campaign.total_bounces = self._safe_int(stats.get("bounce_count") or stats.get("bounces"))
+                                    await self.db.flush()
+                                    logger.info(f"Stored all-time totals for campaign {smartlead_id}")
                         except SmartleadAPIError as e:
                             logger.warning(f"Failed to get aggregate analytics for campaign {smartlead_id}: {e.message}")
 
@@ -147,33 +146,8 @@ class SyncService:
                         except SmartleadAPIError as e:
                             logger.warning(f"Failed to get lead stats for campaign {smartlead_id}: {e.message}")
 
-                        # 3b-2: Also try analytics by date for historical data
-                        end_date = datetime.utcnow().strftime("%Y-%m-%d")
-                        start_date = (datetime.utcnow() - timedelta(days=28)).strftime("%Y-%m-%d")
-
-                        try:
-                            analytics_response = await client.get_campaign_analytics_by_date(
-                                smartlead_id, start_date, end_date
-                            )
-                            await asyncio.sleep(API_DELAY)
-
-                            # Handle different response formats
-                            if isinstance(analytics_response, dict):
-                                daily_analytics = analytics_response.get("data", [])
-                            elif isinstance(analytics_response, list):
-                                daily_analytics = analytics_response
-                            else:
-                                daily_analytics = []
-
-                            logger.info(f"Got {len(daily_analytics)} days of analytics for campaign {smartlead_id}")
-
-                            # Store daily stats
-                            for day_data in daily_analytics:
-                                if isinstance(day_data, dict):
-                                    await self._upsert_daily_stats(campaign.id, day_data)
-
-                        except SmartleadAPIError as e:
-                            logger.warning(f"Failed to get daily analytics for campaign {smartlead_id}: {e.message}")
+                        # 3b-2: Fetch period stats (7D, 14D, 28D) using analytics-by-date API
+                        await self._fetch_and_store_period_stats(client, campaign, smartlead_id)
 
                         # 3c: Get REPLIED leads specifically (much faster than paginating all stats)
                         try:
@@ -552,6 +526,104 @@ class SyncService:
             self.db.add(daily_stats)
 
         await self.db.flush()
+
+    async def _fetch_and_store_period_stats(
+        self,
+        client: SmartleadClient,
+        campaign: Campaign,
+        smartlead_id: int,
+    ):
+        """
+        Fetch period stats (7D, 14D, 28D) from Smartlead analytics-by-date API.
+
+        The API returns aggregate data for the specified date range.
+        We call it three times with different ranges to get 7, 14, and 28 day stats.
+        """
+        end_date = datetime.utcnow().strftime("%Y-%m-%d")
+
+        # Define periods to fetch
+        periods = [
+            (7, "stats_7d"),
+            (14, "stats_14d"),
+            (28, "stats_28d"),
+        ]
+
+        for days, prefix in periods:
+            start_date = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
+
+            try:
+                analytics_response = await client.get_campaign_analytics_by_date(
+                    smartlead_id, start_date, end_date
+                )
+                await asyncio.sleep(API_DELAY)
+
+                # Handle response format - could be dict or list
+                if isinstance(analytics_response, dict):
+                    # If it's a dict with 'data' key, extract it
+                    data = analytics_response.get("data", analytics_response)
+                    # If data is a list, sum up the values; if dict, use directly
+                    if isinstance(data, list) and len(data) > 0:
+                        # Sum up all entries for the period
+                        stats = self._aggregate_analytics_list(data)
+                    elif isinstance(data, dict):
+                        stats = data
+                    else:
+                        stats = {}
+                elif isinstance(analytics_response, list) and len(analytics_response) > 0:
+                    # Sum up all entries for the period
+                    stats = self._aggregate_analytics_list(analytics_response)
+                else:
+                    stats = {}
+
+                # Extract and store stats
+                sent = self._safe_int(stats.get("sent_count") or stats.get("unique_sent_count") or stats.get("sent"))
+                replied = self._safe_int(stats.get("reply_count") or stats.get("unique_reply_count") or stats.get("replied"))
+                positive = self._safe_int(stats.get("positive_reply_count") or stats.get("positive_replies") or stats.get("positive"))
+                opens = self._safe_int(stats.get("open_count") or stats.get("unique_open_count") or stats.get("opens"))
+                bounces = self._safe_int(stats.get("bounce_count") or stats.get("bounces"))
+
+                # Update campaign with period stats
+                setattr(campaign, f"{prefix}_sent", sent)
+                setattr(campaign, f"{prefix}_replied", replied)
+                setattr(campaign, f"{prefix}_positive", positive)
+                setattr(campaign, f"{prefix}_opens", opens)
+                setattr(campaign, f"{prefix}_bounces", bounces)
+
+                logger.info(f"Stored {prefix} stats for campaign {smartlead_id}: sent={sent}, replied={replied}, positive={positive}, bounces={bounces}")
+
+            except SmartleadAPIError as e:
+                logger.warning(f"Failed to get {days}D analytics for campaign {smartlead_id}: {e.message}")
+            except Exception as e:
+                logger.warning(f"Error processing {days}D analytics for campaign {smartlead_id}: {e}")
+
+        # Also store all-time totals from aggregate analytics (already fetched in step 3b)
+        # These will be used for the "All Time" view
+        await self.db.flush()
+
+    def _aggregate_analytics_list(self, data: list) -> dict:
+        """Sum up analytics from a list of daily entries."""
+        result = {}
+        numeric_fields = [
+            "sent_count", "unique_sent_count", "reply_count", "unique_reply_count",
+            "positive_reply_count", "positive_replies", "open_count", "unique_open_count",
+            "bounce_count", "click_count", "unique_click_count"
+        ]
+
+        for field in numeric_fields:
+            total = sum(self._safe_int(entry.get(field)) for entry in data if isinstance(entry, dict))
+            if total > 0:
+                result[field] = total
+
+        return result
+
+    def _safe_int(self, value) -> int:
+        """Safely convert a value to int, returning 0 if conversion fails."""
+        if value is None:
+            return 0
+        try:
+            return int(value)
+        except (ValueError, TypeError):
+            return 0
 
     async def _upsert_campaign(self, campaign_data: dict) -> Campaign:
         """Insert or update a campaign."""

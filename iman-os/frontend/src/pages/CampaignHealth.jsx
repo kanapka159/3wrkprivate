@@ -356,6 +356,10 @@ function CampaignTable({
           aVal = a.periods?.['14_days']?.reply_rate || 0;
           bVal = b.periods?.['14_days']?.reply_rate || 0;
           break;
+        case '28d_sent':
+          aVal = a.periods?.['28_days']?.sent_count || 0;
+          bVal = b.periods?.['28_days']?.sent_count || 0;
+          break;
         case '28d_rate':
           aVal = a.periods?.['28_days']?.reply_rate || 0;
           bVal = b.periods?.['28_days']?.reply_rate || 0;
@@ -396,7 +400,7 @@ function CampaignTable({
     const count = sortedCampaigns.length;
 
     // Calculate averages
-    let total7dSent = 0, total7dRate = 0, total14dSent = 0, total14dRate = 0, total28dRate = 0, totalPositiveRate = 0;
+    let total7dSent = 0, total7dRate = 0, total14dSent = 0, total14dRate = 0, total28dSent = 0, total28dRate = 0, totalPositiveRate = 0;
 
     sortedCampaigns.forEach(c => {
       const periods = c.periods || {};
@@ -405,6 +409,7 @@ function CampaignTable({
       total7dRate += periods['7_days']?.reply_rate || stats.reply_rate || 0;
       total14dSent += periods['14_days']?.sent_count || 0;
       total14dRate += periods['14_days']?.reply_rate || 0;
+      total28dSent += periods['28_days']?.sent_count || 0;
       total28dRate += periods['28_days']?.reply_rate || 0;
       totalPositiveRate += stats.positive_rate || 0;
     });
@@ -416,6 +421,7 @@ function CampaignTable({
       avg7dRate: total7dRate / count,
       avg14dSent: Math.round(total14dSent / count),
       avg14dRate: total14dRate / count,
+      avg28dSent: Math.round(total28dSent / count),
       avg28dRate: total28dRate / count,
       avgPositiveRate: totalPositiveRate / count,
     };
@@ -485,6 +491,7 @@ function CampaignTable({
                 <SortableHeader label="7D Reply" subLabel="Ratio" field="7d_rate" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="90px" />
                 <SortableHeader label="14D" subLabel="Sent" field="14d_sent" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="70px" />
                 <SortableHeader label="14D Reply" subLabel="Ratio" field="14d_rate" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="95px" />
+                <SortableHeader label="28D" subLabel="Sent" field="28d_sent" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="70px" />
                 <SortableHeader label="28D Reply" subLabel="Ratio" field="28d_rate" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="95px" />
                 <SortableHeader label="Positive" subLabel="Reply Ratio" field="positive" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="90px" />
                 <SortableHeader label="Bounce" subLabel="Ratio" field="bounce" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="80px" />
@@ -495,13 +502,13 @@ function CampaignTable({
             <tbody>
               {showLoadingSpinner ? (
                 <tr>
-                  <td colSpan="15" className="px-4 py-12 text-center">
+                  <td colSpan="16" className="px-4 py-12 text-center">
                     <LoadingSpinner size="lg" />
                   </td>
                 </tr>
               ) : sortedCampaigns.length === 0 ? (
                 <tr>
-                  <td colSpan="15" className="px-4 py-12 text-center text-gray-500">
+                  <td colSpan="16" className="px-4 py-12 text-center text-gray-500">
                     {emptyMessage}
                   </td>
                 </tr>
@@ -630,6 +637,13 @@ function CampaignTable({
                         </span>
                       </td>
 
+                      {/* 28D Sent */}
+                      <td className="px-3 py-3 text-center">
+                        <span className="text-white text-sm font-medium">
+                          {formatNumber(periods['28_days']?.sent_count || 0)}
+                        </span>
+                      </td>
+
                       {/* 28D Reply Ratio */}
                       <td className="px-3 py-3 text-center">
                         <span className={`text-sm font-bold ${getRateColor(periods['28_days']?.reply_rate || 0)}`}>
@@ -733,6 +747,12 @@ function CampaignTable({
                   <td className="px-3 py-4 text-center">
                     <span className={`text-base font-bold ${getRateColor(summary.avg14dRate)}`}>
                       {formatPercent(summary.avg14dRate)}
+                    </span>
+                  </td>
+                  {/* 28D Sent - average */}
+                  <td className="px-3 py-4 text-center">
+                    <span className="text-gray-300 text-base">
+                      {formatNumber(summary.avg28dSent)}
                     </span>
                   </td>
                   {/* 28D Reply Ratio - average */}

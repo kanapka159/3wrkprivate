@@ -30,6 +30,35 @@ class Campaign(Base):
     completion_percentage = Column(Float, nullable=True)  # Campaign completion % from Smartlead
     total_leads = Column(Integer, nullable=True)  # Total leads in campaign
 
+    # Period stats (7D, 14D, 28D) - stored from Smartlead analytics-by-date API
+    # 7 Day stats
+    stats_7d_sent = Column(Integer, default=0)
+    stats_7d_replied = Column(Integer, default=0)
+    stats_7d_positive = Column(Integer, default=0)
+    stats_7d_opens = Column(Integer, default=0)
+    stats_7d_bounces = Column(Integer, default=0)
+
+    # 14 Day stats
+    stats_14d_sent = Column(Integer, default=0)
+    stats_14d_replied = Column(Integer, default=0)
+    stats_14d_positive = Column(Integer, default=0)
+    stats_14d_opens = Column(Integer, default=0)
+    stats_14d_bounces = Column(Integer, default=0)
+
+    # 28 Day stats
+    stats_28d_sent = Column(Integer, default=0)
+    stats_28d_replied = Column(Integer, default=0)
+    stats_28d_positive = Column(Integer, default=0)
+    stats_28d_opens = Column(Integer, default=0)
+    stats_28d_bounces = Column(Integer, default=0)
+
+    # All-time totals (from aggregate analytics)
+    total_sent = Column(Integer, default=0)
+    total_replied = Column(Integer, default=0)
+    total_positive = Column(Integer, default=0)
+    total_opens = Column(Integer, default=0)
+    total_bounces = Column(Integer, default=0)
+
     # Relationships
     daily_stats = relationship("CampaignDailyStats", back_populates="campaign", cascade="all, delete-orphan")
     sequences = relationship("Sequence", back_populates="campaign", cascade="all, delete-orphan")

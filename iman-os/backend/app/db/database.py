@@ -110,5 +110,39 @@ async def _run_migrations(conn):
             await conn.execute(text("ALTER TABLE campaigns ADD COLUMN total_leads INTEGER"))
             logger.info("Migration completed: added total_leads column")
 
+        # Add period stats columns (7D, 14D, 28D)
+        period_stats_columns = [
+            # 7 Day stats
+            ("stats_7d_sent", "INTEGER DEFAULT 0"),
+            ("stats_7d_replied", "INTEGER DEFAULT 0"),
+            ("stats_7d_positive", "INTEGER DEFAULT 0"),
+            ("stats_7d_opens", "INTEGER DEFAULT 0"),
+            ("stats_7d_bounces", "INTEGER DEFAULT 0"),
+            # 14 Day stats
+            ("stats_14d_sent", "INTEGER DEFAULT 0"),
+            ("stats_14d_replied", "INTEGER DEFAULT 0"),
+            ("stats_14d_positive", "INTEGER DEFAULT 0"),
+            ("stats_14d_opens", "INTEGER DEFAULT 0"),
+            ("stats_14d_bounces", "INTEGER DEFAULT 0"),
+            # 28 Day stats
+            ("stats_28d_sent", "INTEGER DEFAULT 0"),
+            ("stats_28d_replied", "INTEGER DEFAULT 0"),
+            ("stats_28d_positive", "INTEGER DEFAULT 0"),
+            ("stats_28d_opens", "INTEGER DEFAULT 0"),
+            ("stats_28d_bounces", "INTEGER DEFAULT 0"),
+            # All-time totals
+            ("total_sent", "INTEGER DEFAULT 0"),
+            ("total_replied", "INTEGER DEFAULT 0"),
+            ("total_positive", "INTEGER DEFAULT 0"),
+            ("total_opens", "INTEGER DEFAULT 0"),
+            ("total_bounces", "INTEGER DEFAULT 0"),
+        ]
+
+        for col_name, col_type in period_stats_columns:
+            if col_name not in columns:
+                logger.info(f"Adding {col_name} column to campaigns table")
+                await conn.execute(text(f"ALTER TABLE campaigns ADD COLUMN {col_name} {col_type}"))
+                logger.info(f"Migration completed: added {col_name} column")
+
     except Exception as e:
         logger.warning(f"Migration check failed (may be expected on fresh DB): {e}")

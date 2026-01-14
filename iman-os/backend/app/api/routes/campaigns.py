@@ -4,11 +4,11 @@ Campaign Routes
 API endpoints for managing campaigns.
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import select, func, and_, or_
+from sqlalchemy import select, or_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ...db import get_db, Campaign, CampaignDailyStats, Sequence
@@ -19,46 +19,18 @@ from ...services.suggestion_engine import SuggestionEngine
 router = APIRouter()
 
 
-async def get_period_stats_for_campaign(db: AsyncSession, campaign_id: int, days: int) -> dict:
-    """Get aggregated stats for a specific time period.
+def get_period_stats_from_campaign(campaign, days: int) -> dict:
+    """Get period stats from stored Campaign fields.
 
-    If there's only 1 data point (today's cumulative totals), returns None
-    to signal that period-specific data is not available.
+    Period stats are fetched during sync from Smartlead analytics-by-date API.
     """
-    cutoff_date = datetime.utcnow() - timedelta(days=days)
+    prefix = f"stats_{days}d"
 
-    # First, count how many data points we have
-    count_result = await db.execute(
-        select(func.count(CampaignDailyStats.id)).where(
-            and_(
-                CampaignDailyStats.campaign_id == campaign_id,
-                CampaignDailyStats.date >= cutoff_date,
-            )
-        )
-    )
-    data_points = count_result.scalar() or 0
-
-    result = await db.execute(
-        select(
-            func.sum(CampaignDailyStats.unique_sent).label("total_sent"),
-            func.sum(CampaignDailyStats.unique_replied).label("total_replied"),
-            func.sum(CampaignDailyStats.positive_replies).label("total_positive"),
-            func.sum(CampaignDailyStats.open_count).label("total_opens"),
-            func.sum(CampaignDailyStats.bounce_count).label("total_bounces"),
-        ).where(
-            and_(
-                CampaignDailyStats.campaign_id == campaign_id,
-                CampaignDailyStats.date >= cutoff_date,
-            )
-        )
-    )
-    row = result.one()
-
-    sent = row.total_sent or 0
-    replied = row.total_replied or 0
-    positive = row.total_positive or 0
-    opens = row.total_opens or 0
-    bounces = row.total_bounces or 0
+    sent = getattr(campaign, f"{prefix}_sent", 0) or 0
+    replied = getattr(campaign, f"{prefix}_replied", 0) or 0
+    positive = getattr(campaign, f"{prefix}_positive", 0) or 0
+    opens = getattr(campaign, f"{prefix}_opens", 0) or 0
+    bounces = getattr(campaign, f"{prefix}_bounces", 0) or 0
 
     return {
         "sent_count": sent,
@@ -70,7 +42,6 @@ async def get_period_stats_for_campaign(db: AsyncSession, campaign_id: int, days
         "positive_rate": round((positive / replied * 100), 2) if replied > 0 else 0,
         "open_rate": round((opens / sent * 100), 2) if sent > 0 else 0,
         "bounce_rate": round((bounces / sent * 100), 2) if sent > 0 else 0,
-        "data_points": data_points,  # Include for debugging/UI hints
     }
 
 
@@ -95,25 +66,8 @@ async def list_campaigns(
     - include_hidden: Include hidden campaigns in results
     - only_hidden: Only return hidden campaigns
     """
-    # Build subquery for aggregated stats
-    stats_subquery = (
-        select(
-            CampaignDailyStats.campaign_id,
-            func.sum(CampaignDailyStats.unique_sent).label("total_sent"),
-            func.sum(CampaignDailyStats.unique_replied).label("total_replied"),
-            func.sum(CampaignDailyStats.positive_replies).label("total_positive"),
-            func.sum(CampaignDailyStats.open_count).label("total_opens"),
-            func.sum(CampaignDailyStats.bounce_count).label("total_bounces"),
-        )
-        .group_by(CampaignDailyStats.campaign_id)
-        .subquery()
-    )
-
-    # Main query
-    query = (
-        select(Campaign, stats_subquery)
-        .outerjoin(stats_subquery, Campaign.id == stats_subquery.c.campaign_id)
-    )
+    # Main query - stats are now stored directly on Campaign model
+    query = select(Campaign)
 
     # Filter by hidden status
     # DRAFTED campaigns are treated as hidden automatically
@@ -138,19 +92,19 @@ async def list_campaigns(
     query = query.order_by(Campaign.created_at.desc())
 
     result = await db.execute(query)
-    rows = result.all()
+    campaigns = result.scalars().all()
 
     # Process campaigns
     suggestion_engine = SuggestionEngine(db)
     campaigns_list = []
 
-    for row in rows:
-        campaign = row[0]
-        sent = row.total_sent or 0
-        replied = row.total_replied or 0
-        positive = row.total_positive or 0
-        opens = row.total_opens or 0
-        bounces = row.total_bounces or 0
+    for campaign in campaigns:
+        # Use stored all-time totals from Campaign model
+        sent = campaign.total_sent or 0
+        replied = campaign.total_replied or 0
+        positive = campaign.total_positive or 0
+        opens = campaign.total_opens or 0
+        bounces = campaign.total_bounces or 0
 
         reply_rate = round((replied / sent * 100), 2) if sent > 0 else 0
         positive_rate = round((positive / replied * 100), 2) if replied > 0 else 0
@@ -171,10 +125,10 @@ async def list_campaigns(
             if suggestion["color"] == "green" and not warnings:
                 continue
 
-        # Get period-specific stats
-        period_7d = await get_period_stats_for_campaign(db, campaign.id, 7)
-        period_14d = await get_period_stats_for_campaign(db, campaign.id, 14)
-        period_28d = await get_period_stats_for_campaign(db, campaign.id, 28)
+        # Get period-specific stats from stored Campaign fields
+        period_7d = get_period_stats_from_campaign(campaign, 7)
+        period_14d = get_period_stats_from_campaign(campaign, 14)
+        period_28d = get_period_stats_from_campaign(campaign, 28)
 
         campaigns_list.append({
             "id": campaign.id,
@@ -236,30 +190,16 @@ async def get_campaign(
     if not campaign:
         raise HTTPException(status_code=404, detail="Campaign not found")
 
-    # Get aggregated stats
-    stats = await db.execute(
-        select(
-            func.sum(CampaignDailyStats.unique_sent),
-            func.sum(CampaignDailyStats.unique_replied),
-            func.sum(CampaignDailyStats.positive_replies),
-            func.sum(CampaignDailyStats.open_count),
-            func.sum(CampaignDailyStats.click_count),
-            func.sum(CampaignDailyStats.bounce_count),
-        ).where(CampaignDailyStats.campaign_id == campaign_id)
-    )
-    row = stats.one()
-
-    sent = row[0] or 0
-    replied = row[1] or 0
-    positive = row[2] or 0
-    opens = row[3] or 0
-    clicks = row[4] or 0
-    bounces = row[5] or 0
+    # Use stored all-time totals from Campaign model
+    sent = campaign.total_sent or 0
+    replied = campaign.total_replied or 0
+    positive = campaign.total_positive or 0
+    opens = campaign.total_opens or 0
+    bounces = campaign.total_bounces or 0
 
     reply_rate = round((replied / sent * 100), 2) if sent > 0 else 0
     positive_rate = round((positive / replied * 100), 2) if replied > 0 else 0
     open_rate = round((opens / sent * 100), 2) if sent > 0 else 0
-    click_rate = round((clicks / sent * 100), 2) if sent > 0 else 0
     bounce_rate = round((bounces / sent * 100), 2) if sent > 0 else 0
 
     # Generate suggestion
@@ -272,6 +212,11 @@ async def get_campaign(
     suggestion = suggestion_engine.generate_suggestion(campaign_data)
     warnings = suggestion_engine.generate_warnings(campaign_data)
 
+    # Get period stats
+    period_7d = get_period_stats_from_campaign(campaign, 7)
+    period_14d = get_period_stats_from_campaign(campaign, 14)
+    period_28d = get_period_stats_from_campaign(campaign, 28)
+
     return {
         "campaign": {
             "id": campaign.id,
@@ -282,19 +227,24 @@ async def get_campaign(
             "client_name": campaign.client_name,
             "last_synced_at": campaign.last_synced_at.isoformat() if campaign.last_synced_at else None,
             "created_at": campaign.created_at.isoformat() if campaign.created_at else None,
+            "completion_percentage": campaign.completion_percentage,
+            "total_leads": campaign.total_leads,
         },
         "stats": {
             "sent_count": sent,
             "reply_count": replied,
             "positive_count": positive,
             "open_count": opens,
-            "click_count": clicks,
             "bounce_count": bounces,
             "reply_rate": reply_rate,
             "positive_rate": positive_rate,
             "open_rate": open_rate,
-            "click_rate": click_rate,
             "bounce_rate": bounce_rate,
+        },
+        "periods": {
+            "7_days": period_7d,
+            "14_days": period_14d,
+            "28_days": period_28d,
         },
         "suggestion": suggestion,
         "warnings": warnings,
