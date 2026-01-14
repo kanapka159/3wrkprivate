@@ -45,6 +45,14 @@ function isFollowUpCampaign(campaign) {
   return name.includes('follow up') || name.includes('follow-up') || name.includes('followup');
 }
 
+// Get campaign provider (HYPERTIDE, GOOGLE, or OTHER)
+function getCampaignProvider(campaign) {
+  const name = (campaign.name || '').toUpperCase();
+  if (name.includes('HYPERTIDE')) return 'HYPERTIDE';
+  if (name.includes('GOOGLE')) return 'GOOGLE';
+  return 'OTHER';
+}
+
 // Top loading banner component
 function SyncingBanner({ isVisible }) {
   if (!isVisible) return null;
@@ -788,6 +796,15 @@ export default function CampaignHealth() {
     };
   }, [hiddenCampaignsData]);
 
+  // Filter campaigns by provider (for provider breakdown section)
+  const { hypertideCampaigns, googleCampaigns } = useMemo(() => {
+    // Use regularCampaigns (non-follow-up, non-hidden)
+    return {
+      hypertideCampaigns: regularCampaigns.filter((c) => getCampaignProvider(c) === 'HYPERTIDE'),
+      googleCampaigns: regularCampaigns.filter((c) => getCampaignProvider(c) === 'GOOGLE'),
+    };
+  }, [regularCampaigns]);
+
   const totalHidden = (hiddenCampaignsData?.campaigns || []).length;
 
   // Get unique clients for filter dropdown
@@ -974,6 +991,53 @@ export default function CampaignHealth() {
                   lastRefreshed={formattedLastRefresh}
                 />
               )}
+            </>
+          )}
+        </>
+      )}
+
+      {/* Provider Breakdown Section */}
+      {(hypertideCampaigns.length > 0 || googleCampaigns.length > 0) && (
+        <>
+          <div className="border-t-4 border-gray-700 my-10"></div>
+
+          <div className="mb-6">
+            <h2 className="text-2xl font-bold text-white mb-2">PROVIDER BREAKDOWN</h2>
+            <p className="text-gray-500 text-sm">Performance comparison between email providers</p>
+          </div>
+
+          {/* HYPERTIDE Campaigns */}
+          {hypertideCampaigns.length > 0 && (
+            <CampaignTable
+              campaigns={hypertideCampaigns}
+              isInitialLoading={isInitialLoading}
+              onStatusChange={handleStatusChange}
+              onToggleHide={handleToggleHide}
+              updatingStatus={updatingStatus}
+              hidingId={hidingId}
+              emptyMessage="No HYPERTIDE campaigns found."
+              title="HYPERTIDE"
+              titleColor="accent"
+              lastRefreshed={formattedLastRefresh}
+            />
+          )}
+
+          {/* Google Campaigns */}
+          {googleCampaigns.length > 0 && (
+            <>
+              <div className="border-t-2 border-gray-700 my-8"></div>
+              <CampaignTable
+                campaigns={googleCampaigns}
+                isInitialLoading={isInitialLoading}
+                onStatusChange={handleStatusChange}
+                onToggleHide={handleToggleHide}
+                updatingStatus={updatingStatus}
+                hidingId={hidingId}
+                emptyMessage="No Google campaigns found."
+                title="GOOGLE"
+                titleColor="accent"
+                lastRefreshed={formattedLastRefresh}
+              />
             </>
           )}
         </>
