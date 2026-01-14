@@ -78,6 +78,38 @@ function WarningBadgeWithTooltip({ text }) {
   );
 }
 
+// Suggestion Badge with Tooltip
+function SuggestionBadgeWithTooltip({ suggestion, color, reason }) {
+  const tooltips = {
+    'KEEP': 'This campaign is performing well. Keep it running as is.',
+    'MONITOR': 'This campaign needs monitoring. Watch the metrics closely for any changes.',
+    'WAIT': 'Not enough data yet. Wait for more results before making decisions.',
+    'PAUSE': 'Consider pausing this campaign. Performance is below expectations.',
+    'REVIEW': 'This campaign needs manual review. Check the targeting and copy.',
+    'STOP': 'Recommend stopping this campaign due to poor performance.',
+  };
+
+  const tooltip = reason || tooltips[suggestion] || `Suggestion: ${suggestion}`;
+
+  const colorClasses = {
+    green: 'bg-success/20 text-success',
+    yellow: 'bg-warning/20 text-warning',
+    red: 'bg-danger/20 text-danger',
+    orange: 'bg-accent/20 text-accent',
+  };
+
+  const bgClass = colorClasses[color] || 'bg-gray-500/20 text-gray-400';
+
+  return (
+    <span
+      className={`inline-flex px-2 py-0.5 rounded-full text-xs font-medium cursor-help ${bgClass}`}
+      title={tooltip}
+    >
+      {suggestion}
+    </span>
+  );
+}
+
 // Status dropdown component
 function StatusDropdown({ status, campaignId, onStatusChange, disabled }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -323,8 +355,8 @@ function CampaignTable({
           </button>
         )}
         {lastRefreshed && (
-          <span className="text-xs text-gray-600 ml-4 italic opacity-70">
-            updated {lastRefreshed}
+          <span className="text-[11px] text-gray-500 ml-auto pl-4 font-light tracking-wide">
+            · {lastRefreshed}
           </span>
         )}
       </div>
@@ -353,13 +385,14 @@ function CampaignTable({
                       <span className="text-gray-400 text-[10px]">Name</span>
                     </div>
                   </div>
-                  {/* Resize handle */}
+                  {/* Resize handle - drag to resize column */}
                   <div
-                    className="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize hover:bg-accent/30 flex items-center justify-center group"
+                    className="absolute right-0 top-0 bottom-0 w-4 cursor-col-resize flex items-center justify-center group select-none"
                     onMouseDown={handleResizeStart}
                     onClick={(e) => e.stopPropagation()}
+                    title="Drag to resize column"
                   >
-                    <div className="w-0.5 h-4 bg-gray-600 group-hover:bg-accent rounded-full"></div>
+                    <div className="w-1 h-6 bg-gray-600 group-hover:bg-accent group-hover:w-1.5 rounded-full transition-all"></div>
                   </div>
                 </th>
                 <SortableHeader label="Created" field="created" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} minWidth="100px" />
@@ -506,9 +539,10 @@ function CampaignTable({
                       {/* Suggestion */}
                       <td className="px-3 py-3">
                         {suggestion.suggestion ? (
-                          <SuggestionBadge
+                          <SuggestionBadgeWithTooltip
                             suggestion={suggestion.suggestion}
                             color={suggestion.color}
+                            reason={suggestion.reason}
                           />
                         ) : (
                           <span className="text-gray-600">-</span>
