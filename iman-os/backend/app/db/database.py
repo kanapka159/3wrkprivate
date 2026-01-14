@@ -136,6 +136,13 @@ async def _run_migrations(conn):
             ("total_positive", "INTEGER DEFAULT 0"),
             ("total_opens", "INTEGER DEFAULT 0"),
             ("total_bounces", "INTEGER DEFAULT 0"),
+            # Lead status counts (for progress and positive ratio calculations)
+            ("leads_completed", "INTEGER DEFAULT 0"),
+            ("leads_blocked", "INTEGER DEFAULT 0"),
+            ("leads_paused", "INTEGER DEFAULT 0"),
+            ("leads_not_started", "INTEGER DEFAULT 0"),
+            ("leads_in_progress", "INTEGER DEFAULT 0"),
+            ("leads_interested", "INTEGER DEFAULT 0"),
         ]
 
         for col_name, col_type in period_stats_columns:

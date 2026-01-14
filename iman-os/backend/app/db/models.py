@@ -59,6 +59,15 @@ class Campaign(Base):
     total_opens = Column(Integer, default=0)
     total_bounces = Column(Integer, default=0)
 
+    # Lead status counts (from lead-statistics API)
+    # Used for progress calculation: (completed + blocked + paused) / total
+    leads_completed = Column(Integer, default=0)
+    leads_blocked = Column(Integer, default=0)
+    leads_paused = Column(Integer, default=0)
+    leads_not_started = Column(Integer, default=0)
+    leads_in_progress = Column(Integer, default=0)
+    leads_interested = Column(Integer, default=0)  # For positive reply ratio
+
     # Relationships
     daily_stats = relationship("CampaignDailyStats", back_populates="campaign", cascade="all, delete-orphan")
     sequences = relationship("Sequence", back_populates="campaign", cascade="all, delete-orphan")

@@ -118,16 +118,16 @@ function SuggestionBadgeWithTooltip({ suggestion, color, reason }) {
 }
 
 // Battery-style progress indicator (Smartlead style)
-// Shows progress as sent/totalLeads percentage
-function CompletionBattery({ sent, totalLeads }) {
-  // Calculate progress: sent emails / total leads * 100
-  const progress = totalLeads > 0 ? Math.min(100, (sent / totalLeads) * 100) : 0;
-  const fillWidth = Math.max(0, progress) * 0.22; // 22px max fill width
+// Progress = (completed + blocked + paused) / total * 100
+function CompletionBattery({ progress }) {
+  // progress is completion_percentage from backend
+  const progressValue = progress || 0;
+  const fillWidth = Math.max(0, progressValue) * 0.22; // 22px max fill width
 
-  // Color based on progress: green >= 80%, orange 40-80%, red < 40%
+  // Color based on progress: green >= 80%, orange 40-80%, blue < 40%
   const getFillColor = () => {
-    if (progress >= 80) return '#22c55e'; // green - almost done
-    if (progress >= 40) return '#f97316'; // orange - in progress
+    if (progressValue >= 80) return '#22c55e'; // green - almost done
+    if (progressValue >= 40) return '#f97316'; // orange - in progress
     return '#3b82f6'; // blue - just started
   };
 
@@ -165,7 +165,7 @@ function CompletionBattery({ sent, totalLeads }) {
           fill={getFillColor()}
         />
       </svg>
-      <span className="text-[10px] text-gray-400 mt-0.5">{Math.round(progress)}%</span>
+      <span className="text-[10px] text-gray-400 mt-0.5">{Math.round(progressValue)}%</span>
     </div>
   );
 }
@@ -328,13 +328,9 @@ function CampaignTable({
           bVal = b.total_leads || 0;
           break;
         case 'progress':
-          // Progress = sent / total_leads
-          const aSent = a.stats?.sent_count || 0;
-          const bSent = b.stats?.sent_count || 0;
-          const aLeads = a.total_leads || 1;
-          const bLeads = b.total_leads || 1;
-          aVal = aSent / aLeads;
-          bVal = bSent / bLeads;
+          // Progress = completion_percentage (calculated from lead status)
+          aVal = a.completion_percentage || 0;
+          bVal = b.completion_percentage || 0;
           break;
         case 'suggestion':
           aVal = a.suggestion?.suggestion || '';
@@ -595,11 +591,10 @@ function CampaignTable({
                         </span>
                       </td>
 
-                      {/* Progress (sent/totalLeads) */}
+                      {/* Progress (completed+blocked+paused)/total */}
                       <td className="px-3 py-3 text-center">
                         <CompletionBattery
-                          sent={stats.sent_count || 0}
-                          totalLeads={campaign.total_leads || 0}
+                          progress={campaign.completion_percentage || 0}
                         />
                       </td>
 
@@ -660,7 +655,7 @@ function CampaignTable({
                           {formatPercent(stats.positive_rate || 0)}
                         </span>
                         <span className={`text-[10px] ml-0.5 ${getPositiveRateColor(stats.positive_rate || 0)}`}>
-                          ({stats.positive_replies || 0})
+                          ({stats.positive_count || 0})
                         </span>
                       </td>
 

@@ -129,20 +129,36 @@ class SyncService:
                         except SmartleadAPIError as e:
                             logger.warning(f"Failed to get aggregate analytics for campaign {smartlead_id}: {e.message}")
 
-                        # 3b-1.5: Get lead stats to get total_leads count
+                        # 3b-1.5: Get lead stats to get total_leads count and lead status breakdown
                         try:
                             lead_stats = await client.get_campaign_lead_stats(smartlead_id)
                             await asyncio.sleep(API_DELAY)
 
-                            # Extract total leads from response
-                            # Response format: {"campaign_lead_stats": {"total": 2425, ...}, ...}
+                            # Extract lead status counts from response
+                            # Response format: {"campaign_lead_stats": {"total": 2425, "completed": 100, ...}, ...}
                             if isinstance(lead_stats, dict):
                                 campaign_lead_stats = lead_stats.get("campaign_lead_stats", {})
+
+                                # Total leads
                                 total_leads = campaign_lead_stats.get("total")
                                 if total_leads is not None:
-                                    campaign.total_leads = int(total_leads)
-                                    logger.info(f"Updated total_leads for campaign {smartlead_id}: {total_leads}")
-                                    await self.db.flush()
+                                    campaign.total_leads = self._safe_int(total_leads)
+
+                                # Lead status breakdown (for progress calculation)
+                                campaign.leads_completed = self._safe_int(campaign_lead_stats.get("completed"))
+                                campaign.leads_blocked = self._safe_int(campaign_lead_stats.get("blocked"))
+                                campaign.leads_paused = self._safe_int(campaign_lead_stats.get("paused"))
+                                campaign.leads_not_started = self._safe_int(campaign_lead_stats.get("notStarted"))
+                                campaign.leads_in_progress = self._safe_int(campaign_lead_stats.get("inprogress"))
+                                campaign.leads_interested = self._safe_int(campaign_lead_stats.get("interested"))
+
+                                # Calculate progress: (completed + blocked + paused) / total * 100
+                                if campaign.total_leads and campaign.total_leads > 0:
+                                    progress = ((campaign.leads_completed + campaign.leads_blocked + campaign.leads_paused) / campaign.total_leads) * 100
+                                    campaign.completion_percentage = round(progress, 0)
+
+                                logger.info(f"Updated lead stats for campaign {smartlead_id}: total={campaign.total_leads}, completed={campaign.leads_completed}, interested={campaign.leads_interested}")
+                                await self.db.flush()
                         except SmartleadAPIError as e:
                             logger.warning(f"Failed to get lead stats for campaign {smartlead_id}: {e.message}")
 

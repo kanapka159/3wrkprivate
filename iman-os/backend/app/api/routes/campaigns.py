@@ -102,12 +102,14 @@ async def list_campaigns(
         # Use stored all-time totals from Campaign model
         sent = campaign.total_sent or 0
         replied = campaign.total_replied or 0
-        positive = campaign.total_positive or 0
         opens = campaign.total_opens or 0
         bounces = campaign.total_bounces or 0
+        # Positive reply ratio uses leads_interested from lead-statistics API
+        interested = campaign.leads_interested or 0
 
         reply_rate = round((replied / sent * 100), 2) if sent > 0 else 0
-        positive_rate = round((positive / replied * 100), 2) if replied > 0 else 0
+        # Positive rate = interested / totalReplies (not positive_replies)
+        positive_rate = round((interested / replied * 100), 2) if replied > 0 else 0
         open_rate = round((opens / sent * 100), 2) if sent > 0 else 0
         bounce_rate = round((bounces / sent * 100), 2) if sent > 0 else 0
 
@@ -142,10 +144,18 @@ async def list_campaigns(
             "created_at": campaign.created_at.isoformat() if campaign.created_at else None,
             "completion_percentage": campaign.completion_percentage,
             "total_leads": campaign.total_leads,
+            "lead_status": {
+                "completed": campaign.leads_completed or 0,
+                "blocked": campaign.leads_blocked or 0,
+                "paused": campaign.leads_paused or 0,
+                "not_started": campaign.leads_not_started or 0,
+                "in_progress": campaign.leads_in_progress or 0,
+                "interested": interested,
+            },
             "stats": {
                 "sent_count": sent,
                 "reply_count": replied,
-                "positive_count": positive,
+                "positive_count": interested,  # Now using interested count
                 "open_count": opens,
                 "bounce_count": bounces,
                 "reply_rate": reply_rate,
@@ -193,12 +203,14 @@ async def get_campaign(
     # Use stored all-time totals from Campaign model
     sent = campaign.total_sent or 0
     replied = campaign.total_replied or 0
-    positive = campaign.total_positive or 0
     opens = campaign.total_opens or 0
     bounces = campaign.total_bounces or 0
+    # Positive reply ratio uses leads_interested from lead-statistics API
+    interested = campaign.leads_interested or 0
 
     reply_rate = round((replied / sent * 100), 2) if sent > 0 else 0
-    positive_rate = round((positive / replied * 100), 2) if replied > 0 else 0
+    # Positive rate = interested / totalReplies
+    positive_rate = round((interested / replied * 100), 2) if replied > 0 else 0
     open_rate = round((opens / sent * 100), 2) if sent > 0 else 0
     bounce_rate = round((bounces / sent * 100), 2) if sent > 0 else 0
 
@@ -230,10 +242,18 @@ async def get_campaign(
             "completion_percentage": campaign.completion_percentage,
             "total_leads": campaign.total_leads,
         },
+        "lead_status": {
+            "completed": campaign.leads_completed or 0,
+            "blocked": campaign.leads_blocked or 0,
+            "paused": campaign.leads_paused or 0,
+            "not_started": campaign.leads_not_started or 0,
+            "in_progress": campaign.leads_in_progress or 0,
+            "interested": interested,
+        },
         "stats": {
             "sent_count": sent,
             "reply_count": replied,
-            "positive_count": positive,
+            "positive_count": interested,  # Using interested count
             "open_count": opens,
             "bounce_count": bounces,
             "reply_rate": reply_rate,
