@@ -27,6 +27,13 @@ function getPositiveRateColor(rate) {
   return 'text-danger';
 }
 
+// Bounce rate color helper - red >= 3%, yellow 1-3%, green < 1%
+function getBounceRateColor(rate) {
+  if (rate >= 3) return 'text-danger';
+  if (rate >= 1) return 'text-warning';
+  return 'text-success';
+}
+
 // Status sort order - Active/Started first, then Paused, then Stopped
 function getStatusSortOrder(status) {
   const order = {
@@ -357,6 +364,10 @@ function CampaignTable({
           aVal = a.stats?.positive_rate || 0;
           bVal = b.stats?.positive_rate || 0;
           break;
+        case 'bounce':
+          aVal = a.stats?.bounce_rate || 0;
+          bVal = b.stats?.bounce_rate || 0;
+          break;
         case 'warnings':
           aVal = a.warnings?.length || 0;
           bVal = b.warnings?.length || 0;
@@ -476,6 +487,7 @@ function CampaignTable({
                 <SortableHeader label="14D Reply" subLabel="Ratio" field="14d_rate" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="95px" />
                 <SortableHeader label="28D Reply" subLabel="Ratio" field="28d_rate" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="95px" />
                 <SortableHeader label="Positive" subLabel="Reply Ratio" field="positive" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="90px" />
+                <SortableHeader label="Bounce" subLabel="Ratio" field="bounce" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="80px" />
                 <SortableHeader label="Suggestions" field="suggestion" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} minWidth="100px" />
                 <SortableHeader label="Warnings" field="warnings" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} minWidth="120px" />
               </tr>
@@ -483,13 +495,13 @@ function CampaignTable({
             <tbody>
               {showLoadingSpinner ? (
                 <tr>
-                  <td colSpan="14" className="px-4 py-12 text-center">
+                  <td colSpan="15" className="px-4 py-12 text-center">
                     <LoadingSpinner size="lg" />
                   </td>
                 </tr>
               ) : sortedCampaigns.length === 0 ? (
                 <tr>
-                  <td colSpan="14" className="px-4 py-12 text-center text-gray-500">
+                  <td colSpan="15" className="px-4 py-12 text-center text-gray-500">
                     {emptyMessage}
                   </td>
                 </tr>
@@ -638,6 +650,16 @@ function CampaignTable({
                         </span>
                       </td>
 
+                      {/* Bounce Ratio */}
+                      <td className="px-3 py-3 text-center">
+                        <span className={`text-sm font-bold ${getBounceRateColor(stats.bounce_rate || 0)}`}>
+                          {formatPercent(stats.bounce_rate || 0)}
+                        </span>
+                        <span className={`text-[10px] ml-0.5 ${getBounceRateColor(stats.bounce_rate || 0)}`}>
+                          ({stats.bounce_count || 0})
+                        </span>
+                      </td>
+
                       {/* Suggestion */}
                       <td className="px-3 py-3">
                         {suggestion.suggestion ? (
@@ -725,6 +747,8 @@ function CampaignTable({
                       {formatPercent(summary.avgPositiveRate)}
                     </span>
                   </td>
+                  {/* Bounce Ratio - skip */}
+                  <td className="px-3 py-4"></td>
                   {/* Suggestions - skip */}
                   <td className="px-3 py-4"></td>
                   {/* Warnings - skip */}

@@ -280,6 +280,30 @@ class SmartleadClient:
         logger.info(f"Fetching sequences for campaign {campaign_id}")
         return await self._request("GET", f"/campaigns/{campaign_id}/sequences")
 
+    async def get_campaign_lead_stats(self, campaign_id: int) -> dict:
+        """
+        Get lead statistics summary for a campaign.
+
+        GET /campaigns/{id}/statistics (with limit=1 to just get totals)
+
+        Returns campaign_lead_stats with:
+        - total: Total number of leads in campaign
+        - notStarted: Leads not yet contacted
+        - inprogress: Leads currently being contacted
+        - completed: Leads that finished sequence or replied
+        - blocked: Blocked leads
+        - paused: Paused leads
+
+        Args:
+            campaign_id: Smartlead campaign ID
+
+        Returns:
+            Statistics object with lead counts
+        """
+        logger.info(f"Fetching lead stats for campaign {campaign_id}")
+        # Use limit=1 to minimize data transfer, we just need the stats summary
+        return await self._request("GET", f"/campaigns/{campaign_id}/statistics", params={"limit": 1})
+
     async def update_campaign_status(self, campaign_id: int, status: str) -> dict:
         """
         Update campaign status.

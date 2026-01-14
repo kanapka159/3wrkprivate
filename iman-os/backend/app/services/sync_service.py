@@ -130,6 +130,23 @@ class SyncService:
                         except SmartleadAPIError as e:
                             logger.warning(f"Failed to get aggregate analytics for campaign {smartlead_id}: {e.message}")
 
+                        # 3b-1.5: Get lead stats to get total_leads count
+                        try:
+                            lead_stats = await client.get_campaign_lead_stats(smartlead_id)
+                            await asyncio.sleep(API_DELAY)
+
+                            # Extract total leads from response
+                            # Response format: {"campaign_lead_stats": {"total": 2425, ...}, ...}
+                            if isinstance(lead_stats, dict):
+                                campaign_lead_stats = lead_stats.get("campaign_lead_stats", {})
+                                total_leads = campaign_lead_stats.get("total")
+                                if total_leads is not None:
+                                    campaign.total_leads = int(total_leads)
+                                    logger.info(f"Updated total_leads for campaign {smartlead_id}: {total_leads}")
+                                    await self.db.flush()
+                        except SmartleadAPIError as e:
+                            logger.warning(f"Failed to get lead stats for campaign {smartlead_id}: {e.message}")
+
                         # 3b-2: Also try analytics by date for historical data
                         end_date = datetime.utcnow().strftime("%Y-%m-%d")
                         start_date = (datetime.utcnow() - timedelta(days=28)).strftime("%Y-%m-%d")
