@@ -542,6 +542,9 @@ function ProviderCampaignTable({
                         <span className={`text-sm font-bold ${getRateColor(periods['7_days']?.reply_rate || stats.reply_rate || 0)}`}>
                           {formatPercent(periods['7_days']?.reply_rate || stats.reply_rate || 0)}
                         </span>
+                        <span className={`text-[10px] ml-0.5 ${getRateColor(periods['7_days']?.reply_rate || stats.reply_rate || 0)}`}>
+                          ({periods['7_days']?.reply_count || stats.reply_count || 0})
+                        </span>
                       </td>
 
                       {/* 14D Sent */}
@@ -556,6 +559,9 @@ function ProviderCampaignTable({
                         <span className={`text-sm font-bold ${getRateColor(periods['14_days']?.reply_rate || 0)}`}>
                           {formatPercent(periods['14_days']?.reply_rate || 0)}
                         </span>
+                        <span className={`text-[10px] ml-0.5 ${getRateColor(periods['14_days']?.reply_rate || 0)}`}>
+                          ({periods['14_days']?.reply_count || 0})
+                        </span>
                       </td>
 
                       {/* 28D Reply Ratio */}
@@ -563,12 +569,18 @@ function ProviderCampaignTable({
                         <span className={`text-sm font-bold ${getRateColor(periods['28_days']?.reply_rate || 0)}`}>
                           {formatPercent(periods['28_days']?.reply_rate || 0)}
                         </span>
+                        <span className={`text-[10px] ml-0.5 ${getRateColor(periods['28_days']?.reply_rate || 0)}`}>
+                          ({periods['28_days']?.reply_count || 0})
+                        </span>
                       </td>
 
                       {/* Positive Reply Ratio */}
                       <td className="px-3 py-3 text-center">
                         <span className={`text-sm font-bold ${getPositiveRateColor(stats.positive_rate || 0)}`}>
                           {formatPercent(stats.positive_rate || 0)}
+                        </span>
+                        <span className={`text-[10px] ml-0.5 ${getPositiveRateColor(stats.positive_rate || 0)}`}>
+                          ({stats.positive_replies || 0})
                         </span>
                       </td>
 
