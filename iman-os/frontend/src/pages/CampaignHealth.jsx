@@ -572,10 +572,10 @@ function CampaignTable({
                   <td className="px-2 py-3"></td>
                   {/* Summary Label */}
                   <td className="px-3 py-3 text-center" style={{ width: nameColumnWidth }}>
-                    <div className="text-accent text-sm font-bold">
-                      SUMMARY OF ALL
-                      <span className="text-gray-400 font-normal ml-1">
-                        ({summary.activeCount} active)
+                    <div className="flex flex-col items-center">
+                      <span className="text-accent text-sm font-bold">SUMMARY OF ALL</span>
+                      <span className="text-gray-500 text-xs font-normal">
+                        {summary.activeCount} active
                       </span>
                     </div>
                   </td>
@@ -585,7 +585,7 @@ function CampaignTable({
                   <td className="px-3 py-3"></td>
                   {/* 7D Sent - average */}
                   <td className="px-3 py-3 text-center">
-                    <span className="text-white text-sm">
+                    <span className="text-gray-300 text-sm">
                       {formatNumber(summary.avg7dSent)}
                     </span>
                   </td>
@@ -597,7 +597,7 @@ function CampaignTable({
                   </td>
                   {/* 14D Sent - average */}
                   <td className="px-3 py-3 text-center">
-                    <span className="text-white text-sm">
+                    <span className="text-gray-300 text-sm">
                       {formatNumber(summary.avg14dSent)}
                     </span>
                   </td>
