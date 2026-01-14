@@ -569,60 +569,60 @@ function CampaignTable({
               {summary && sortedCampaigns.length > 0 && (
                 <tr className="border-t-2 border-gray-600 bg-secondary/50 font-semibold">
                   {/* Empty cell for hide button */}
-                  <td className="px-2 py-3"></td>
+                  <td className="px-2 py-4"></td>
                   {/* Summary Label */}
-                  <td className="px-3 py-3 text-center" style={{ width: nameColumnWidth }}>
-                    <div className="flex flex-col items-center">
-                      <span className="text-accent text-sm font-bold">SUMMARY OF ALL</span>
-                      <span className="text-gray-500 text-xs font-normal">
+                  <td className="px-3 py-4 text-center" style={{ width: nameColumnWidth }}>
+                    <div className="flex flex-col items-center justify-center">
+                      <span className="text-accent text-sm font-bold tracking-wide">SUMMARY OF ALL</span>
+                      <span className="text-gray-500 text-xs font-normal mt-0.5">
                         {summary.activeCount} active
                       </span>
                     </div>
                   </td>
                   {/* Created - skip */}
-                  <td className="px-3 py-3"></td>
+                  <td className="px-3 py-4"></td>
                   {/* Status - skip */}
-                  <td className="px-3 py-3"></td>
+                  <td className="px-3 py-4"></td>
                   {/* 7D Sent - average */}
-                  <td className="px-3 py-3 text-center">
-                    <span className="text-gray-300 text-sm">
+                  <td className="px-3 py-4 text-center">
+                    <span className="text-gray-300 text-base">
                       {formatNumber(summary.avg7dSent)}
                     </span>
                   </td>
                   {/* 7D Reply Ratio - average */}
-                  <td className="px-3 py-3 text-center">
-                    <span className={`text-sm font-bold ${getRateColor(summary.avg7dRate)}`}>
+                  <td className="px-3 py-4 text-center">
+                    <span className={`text-base font-bold ${getRateColor(summary.avg7dRate)}`}>
                       {formatPercent(summary.avg7dRate)}
                     </span>
                   </td>
                   {/* 14D Sent - average */}
-                  <td className="px-3 py-3 text-center">
-                    <span className="text-gray-300 text-sm">
+                  <td className="px-3 py-4 text-center">
+                    <span className="text-gray-300 text-base">
                       {formatNumber(summary.avg14dSent)}
                     </span>
                   </td>
                   {/* 14D Reply Ratio - average */}
-                  <td className="px-3 py-3 text-center">
-                    <span className={`text-sm font-bold ${getRateColor(summary.avg14dRate)}`}>
+                  <td className="px-3 py-4 text-center">
+                    <span className={`text-base font-bold ${getRateColor(summary.avg14dRate)}`}>
                       {formatPercent(summary.avg14dRate)}
                     </span>
                   </td>
                   {/* 28D Reply Ratio - average */}
-                  <td className="px-3 py-3 text-center">
-                    <span className={`text-sm font-bold ${getRateColor(summary.avg28dRate)}`}>
+                  <td className="px-3 py-4 text-center">
+                    <span className={`text-base font-bold ${getRateColor(summary.avg28dRate)}`}>
                       {formatPercent(summary.avg28dRate)}
                     </span>
                   </td>
                   {/* Positive Reply Ratio - average */}
-                  <td className="px-3 py-3 text-center">
-                    <span className={`text-sm font-bold ${getPositiveRateColor(summary.avgPositiveRate)}`}>
+                  <td className="px-3 py-4 text-center">
+                    <span className={`text-base font-bold ${getPositiveRateColor(summary.avgPositiveRate)}`}>
                       {formatPercent(summary.avgPositiveRate)}
                     </span>
                   </td>
                   {/* Suggestions - skip */}
-                  <td className="px-3 py-3"></td>
+                  <td className="px-3 py-4"></td>
                   {/* Warnings - skip */}
-                  <td className="px-3 py-3"></td>
+                  <td className="px-3 py-4"></td>
                 </tr>
               )}
             </tbody>
