@@ -113,10 +113,17 @@ async def list_campaigns(
         open_rate = round((opens / sent * 100), 2) if sent > 0 else 0
         bounce_rate = round((bounces / sent * 100), 2) if sent > 0 else 0
 
-        # Generate suggestion
+        # Get period-specific stats from stored Campaign fields
+        period_7d = get_period_stats_from_campaign(campaign, 7)
+        period_14d = get_period_stats_from_campaign(campaign, 14)
+        period_28d = get_period_stats_from_campaign(campaign, 28)
+
+        # Generate suggestion using PROMPT 4 logic with period stats
         campaign_data = {
-            "sent_count": sent,
-            "reply_rate": reply_rate,
+            "sent_7d": period_7d.get("sent_count", 0),
+            "reply_rate_7d": period_7d.get("reply_rate", 0),
+            "reply_rate_14d": period_14d.get("reply_rate", 0),
+            "reply_rate_28d": period_28d.get("reply_rate", 0),
             "positive_rate": positive_rate,
         }
         suggestion = suggestion_engine.generate_suggestion(campaign_data)
@@ -126,11 +133,6 @@ async def list_campaigns(
         if only_suggestions:
             if suggestion["color"] == "green" and not warnings:
                 continue
-
-        # Get period-specific stats from stored Campaign fields
-        period_7d = get_period_stats_from_campaign(campaign, 7)
-        period_14d = get_period_stats_from_campaign(campaign, 14)
-        period_28d = get_period_stats_from_campaign(campaign, 28)
 
         campaigns_list.append({
             "id": campaign.id,
@@ -214,20 +216,22 @@ async def get_campaign(
     open_rate = round((opens / sent * 100), 2) if sent > 0 else 0
     bounce_rate = round((bounces / sent * 100), 2) if sent > 0 else 0
 
-    # Generate suggestion
-    suggestion_engine = SuggestionEngine(db)
-    campaign_data = {
-        "sent_count": sent,
-        "reply_rate": reply_rate,
-        "positive_rate": positive_rate,
-    }
-    suggestion = suggestion_engine.generate_suggestion(campaign_data)
-    warnings = suggestion_engine.generate_warnings(campaign_data)
-
     # Get period stats
     period_7d = get_period_stats_from_campaign(campaign, 7)
     period_14d = get_period_stats_from_campaign(campaign, 14)
     period_28d = get_period_stats_from_campaign(campaign, 28)
+
+    # Generate suggestion using PROMPT 4 logic with period stats
+    suggestion_engine = SuggestionEngine(db)
+    campaign_data = {
+        "sent_7d": period_7d.get("sent_count", 0),
+        "reply_rate_7d": period_7d.get("reply_rate", 0),
+        "reply_rate_14d": period_14d.get("reply_rate", 0),
+        "reply_rate_28d": period_28d.get("reply_rate", 0),
+        "positive_rate": positive_rate,
+    }
+    suggestion = suggestion_engine.generate_suggestion(campaign_data)
+    warnings = suggestion_engine.generate_warnings(campaign_data)
 
     return {
         "campaign": {

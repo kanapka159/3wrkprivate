@@ -19,12 +19,8 @@ logger = logging.getLogger(__name__)
 class SuggestionEngine:
     """Service for generating campaign improvement suggestions."""
 
-    # Thresholds for campaign actions
-    LOW_DATA_THRESHOLD = 200  # Minimum sends before making suggestions
-    KEEP_THRESHOLD = 2.0      # >= 2% reply rate = green (keep running)
-    MONITOR_THRESHOLD = 1.0   # >= 1% reply rate = yellow (monitor)
-    PAUSE_THRESHOLD = 0.5     # >= 0.5% reply rate = orange (pause)
-    # < 0.5% reply rate = red (kill)
+    # Thresholds for campaign actions (PROMPT 4 logic)
+    WAIT_SENT_THRESHOLD = 100  # Minimum 7D sends before making suggestions
 
     # Colors for suggestions
     COLOR_GREEN = "green"
@@ -40,101 +36,122 @@ class SuggestionEngine:
         """
         Generate a suggestion based on campaign performance data.
 
+        PROMPT 4 Logic:
+        - WAIT: sent7d < 100 (not enough data)
+        - PAUSE: reply14d < 0.5 OR (reply7d < 0.8 AND positive < 5)
+        - KEEP: reply7d > 3 AND positive > 40
+        - MONITOR: reply7d >= 1 AND reply7d <= 3
+        - Default: MONITOR
+
         Args:
             campaign_data: Dictionary with campaign metrics including:
-                - sent_count: Total emails sent
-                - reply_rate: Reply rate as percentage
-                - positive_rate: Positive reply rate (optional)
-                - trend: "up", "down", or "flat" (optional)
+                - sent_7d: Emails sent in last 7 days
+                - reply_rate_7d: 7-day reply rate as percentage
+                - reply_rate_14d: 14-day reply rate as percentage
+                - positive_rate: Positive reply ratio (interested/totalReplies)
 
         Returns:
             Dictionary with suggestion, reason, and color
         """
-        sent_count = campaign_data.get("sent_count", 0)
-        reply_rate = campaign_data.get("reply_rate", 0)
+        # Extract metrics
+        sent_7d = campaign_data.get("sent_7d", 0)
+        reply_7d = float(campaign_data.get("reply_rate_7d", 0))
+        reply_14d = float(campaign_data.get("reply_rate_14d", 0))
+        positive = float(campaign_data.get("positive_rate", 0))
 
-        # Not enough data
-        if sent_count < self.LOW_DATA_THRESHOLD:
+        # WAIT: Just launched, not enough data
+        if sent_7d == 0 or sent_7d < self.WAIT_SENT_THRESHOLD:
             return {
                 "suggestion": "WAIT",
-                "reason": f"Only {sent_count} emails sent. Need {self.LOW_DATA_THRESHOLD} for reliable analysis.",
+                "reason": f"Only {sent_7d} emails sent in 7 days. Need {self.WAIT_SENT_THRESHOLD} for reliable analysis.",
                 "color": self.COLOR_GRAY,
             }
 
-        # KEEP - Green (>= 2% reply rate)
-        if reply_rate >= self.KEEP_THRESHOLD:
-            return {
-                "suggestion": "KEEP",
-                "reason": f"Strong performance with {reply_rate:.2f}% reply rate. Keep running.",
-                "color": self.COLOR_GREEN,
-            }
-
-        # MONITOR - Yellow (>= 1% reply rate)
-        if reply_rate >= self.MONITOR_THRESHOLD:
-            return {
-                "suggestion": "MONITOR",
-                "reason": f"Reply rate at {reply_rate:.2f}%. Monitor closely for improvement.",
-                "color": self.COLOR_YELLOW,
-            }
-
-        # PAUSE - Orange (>= 0.5% reply rate)
-        if reply_rate >= self.PAUSE_THRESHOLD:
+        # PAUSE: Very poor performance
+        if reply_14d < 0.5 or (reply_7d < 0.8 and positive < 5):
+            reasons = []
+            if reply_14d < 0.5:
+                reasons.append(f"14D reply rate too low ({reply_14d:.2f}%)")
+            if reply_7d < 0.8 and positive < 5:
+                reasons.append(f"7D reply ({reply_7d:.2f}%) and positive ({positive:.1f}%) both low")
             return {
                 "suggestion": "PAUSE",
-                "reason": f"Low reply rate ({reply_rate:.2f}%). Consider pausing to optimize.",
+                "reason": ". ".join(reasons) + ". Consider pausing to optimize.",
                 "color": self.COLOR_ORANGE,
             }
 
-        # KILL - Red (< 0.5% reply rate)
+        # KEEP: Good performance
+        if reply_7d > 3 and positive > 40:
+            return {
+                "suggestion": "KEEP",
+                "reason": f"Strong performance: {reply_7d:.2f}% reply rate, {positive:.1f}% positive. Keep running.",
+                "color": self.COLOR_GREEN,
+            }
+
+        # MONITOR: Okay performance (reply7d between 1 and 3)
+        if reply_7d >= 1 and reply_7d <= 3:
+            return {
+                "suggestion": "MONITOR",
+                "reason": f"Reply rate at {reply_7d:.2f}%. Monitor closely for improvement.",
+                "color": self.COLOR_YELLOW,
+            }
+
+        # Default: MONITOR
         return {
-            "suggestion": "KILL",
-            "reason": f"Very low reply rate ({reply_rate:.2f}%). Stop campaign immediately.",
-            "color": self.COLOR_RED,
+            "suggestion": "MONITOR",
+            "reason": f"Performance needs watching. 7D reply: {reply_7d:.2f}%, positive: {positive:.1f}%.",
+            "color": self.COLOR_YELLOW,
         }
 
     def generate_warnings(self, campaign_data: dict) -> list[str]:
         """
         Generate warning messages based on campaign data.
 
+        PROMPT 4 Logic:
+        - Low Reply Rate: reply7d < 1 OR reply14d < 1 OR reply28d < 1
+        - Low Quality: positive < 20 AND positive > 0
+        - Declining Performance: reply7d < reply14d - 0.5
+        - No Positive Replies: positive === 0
+
         Args:
             campaign_data: Dictionary with campaign metrics including:
-                - reply_rate: Current reply rate
-                - previous_reply_rate: Reply rate from previous period (optional)
-                - positive_rate: Positive reply rate (optional)
-                - days_since_last_reply: Days since last reply (optional)
-                - sent_count: Total emails sent
+                - sent_7d: Emails sent in last 7 days
+                - reply_rate_7d: 7-day reply rate
+                - reply_rate_14d: 14-day reply rate
+                - reply_rate_28d: 28-day reply rate
+                - positive_rate: Positive reply ratio
 
         Returns:
             List of warning strings
         """
         warnings = []
-        sent_count = campaign_data.get("sent_count", 0)
-        reply_rate = campaign_data.get("reply_rate", 0)
-        previous_reply_rate = campaign_data.get("previous_reply_rate")
-        positive_rate = campaign_data.get("positive_rate", 0)
-        days_since_last_reply = campaign_data.get("days_since_last_reply")
+
+        # Extract metrics
+        sent_7d = campaign_data.get("sent_7d", 0)
+        reply_7d = float(campaign_data.get("reply_rate_7d", 0))
+        reply_14d = float(campaign_data.get("reply_rate_14d", 0))
+        reply_28d = float(campaign_data.get("reply_rate_28d", 0))
+        positive = float(campaign_data.get("positive_rate", 0))
 
         # Skip warnings if not enough data
-        if sent_count < self.LOW_DATA_THRESHOLD:
+        if sent_7d < self.WAIT_SENT_THRESHOLD:
             return warnings
 
-        # Low Reply Rate warning
-        if reply_rate < self.MONITOR_THRESHOLD:
+        # Low Reply Rate
+        if reply_7d < 1 or reply_14d < 1 or reply_28d < 1:
             warnings.append("Low Reply Rate")
 
-        # Declining warning - reply rate dropped significantly
-        if previous_reply_rate is not None and previous_reply_rate > 0:
-            decline_pct = ((previous_reply_rate - reply_rate) / previous_reply_rate) * 100
-            if decline_pct >= 25:  # 25% or more decline
-                warnings.append("Declining")
-
-        # Low Quality warning - low positive rate among replies
-        if reply_rate > 0 and positive_rate < 30:  # Less than 30% positive
+        # Low Quality (positive < 20 but > 0)
+        if positive < 20 and positive > 0:
             warnings.append("Low Quality")
 
-        # Stalled warning - no replies in a while
-        if days_since_last_reply is not None and days_since_last_reply >= 7:
-            warnings.append("Stalled")
+        # Declining Performance (7D rate dropped more than 0.5 from 14D)
+        if reply_7d < reply_14d - 0.5:
+            warnings.append("Declining Performance")
+
+        # No Positive Replies
+        if positive == 0:
+            warnings.append("No Positive Replies")
 
         return warnings
 
