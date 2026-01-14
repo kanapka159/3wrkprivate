@@ -20,6 +20,13 @@ function getRateColor(rate) {
   return 'text-danger';
 }
 
+// Positive reply ratio color helper - green >= 15%, yellow 5-15%, red < 5%
+function getPositiveRateColor(rate) {
+  if (rate >= 15) return 'text-success';
+  if (rate >= 5) return 'text-warning';
+  return 'text-danger';
+}
+
 // Status sort order - Active/Started first, then Paused, then Stopped
 function getStatusSortOrder(status) {
   const order = {
@@ -267,6 +274,39 @@ function CampaignTable({
   // Only show full loading spinner on initial load (no data yet)
   const showLoadingSpinner = isInitialLoading && campaigns.length === 0;
 
+  // Calculate summary/averages for all campaigns
+  const summary = useMemo(() => {
+    if (sortedCampaigns.length === 0) return null;
+
+    const activeCampaigns = sortedCampaigns.filter(c => c.status === 'STARTED' || c.status === 'ACTIVE');
+    const count = sortedCampaigns.length;
+
+    // Calculate averages
+    let total7dSent = 0, total7dRate = 0, total14dSent = 0, total14dRate = 0, total28dRate = 0, totalPositiveRate = 0;
+
+    sortedCampaigns.forEach(c => {
+      const periods = c.periods || {};
+      const stats = c.stats || {};
+      total7dSent += periods['7_days']?.sent_count || stats.sent_count || 0;
+      total7dRate += periods['7_days']?.reply_rate || stats.reply_rate || 0;
+      total14dSent += periods['14_days']?.sent_count || 0;
+      total14dRate += periods['14_days']?.reply_rate || 0;
+      total28dRate += periods['28_days']?.reply_rate || 0;
+      totalPositiveRate += stats.positive_rate || 0;
+    });
+
+    return {
+      activeCount: activeCampaigns.length,
+      totalCount: count,
+      avg7dSent: Math.round(total7dSent / count),
+      avg7dRate: total7dRate / count,
+      avg14dSent: Math.round(total14dSent / count),
+      avg14dRate: total14dRate / count,
+      avg28dRate: total28dRate / count,
+      avgPositiveRate: totalPositiveRate / count,
+    };
+  }, [sortedCampaigns]);
+
   return (
     <div className="mb-4">
       {/* Table Header with Title, Refresh, and Last Updated */}
@@ -458,7 +498,7 @@ function CampaignTable({
 
                       {/* Positive Reply Ratio */}
                       <td className="px-3 py-3 text-center">
-                        <span className="text-white text-sm font-medium">
+                        <span className={`text-sm font-bold ${getPositiveRateColor(stats.positive_rate || 0)}`}>
                           {formatPercent(stats.positive_rate || 0)}
                         </span>
                       </td>
@@ -490,6 +530,66 @@ function CampaignTable({
                     </tr>
                   );
                 })
+              )}
+              {/* Summary Row */}
+              {summary && sortedCampaigns.length > 0 && (
+                <tr className="border-t-2 border-gray-600 bg-secondary/50 font-semibold">
+                  {/* Empty cell for hide button */}
+                  <td className="px-2 py-3"></td>
+                  {/* Summary Label */}
+                  <td className="px-3 py-3 text-center" style={{ width: nameColumnWidth }}>
+                    <div className="text-accent text-sm font-bold">
+                      SUMMARY OF ALL
+                      <span className="text-gray-400 font-normal ml-1">
+                        ({summary.activeCount} active)
+                      </span>
+                    </div>
+                  </td>
+                  {/* Created - skip */}
+                  <td className="px-3 py-3"></td>
+                  {/* Status - skip */}
+                  <td className="px-3 py-3"></td>
+                  {/* 7D Sent - average */}
+                  <td className="px-3 py-3 text-center">
+                    <span className="text-white text-sm">
+                      {formatNumber(summary.avg7dSent)}
+                    </span>
+                  </td>
+                  {/* 7D Reply Ratio - average */}
+                  <td className="px-3 py-3 text-center">
+                    <span className={`text-sm font-bold ${getRateColor(summary.avg7dRate)}`}>
+                      {formatPercent(summary.avg7dRate)}
+                    </span>
+                  </td>
+                  {/* 14D Sent - average */}
+                  <td className="px-3 py-3 text-center">
+                    <span className="text-white text-sm">
+                      {formatNumber(summary.avg14dSent)}
+                    </span>
+                  </td>
+                  {/* 14D Reply Ratio - average */}
+                  <td className="px-3 py-3 text-center">
+                    <span className={`text-sm font-bold ${getRateColor(summary.avg14dRate)}`}>
+                      {formatPercent(summary.avg14dRate)}
+                    </span>
+                  </td>
+                  {/* 28D Reply Ratio - average */}
+                  <td className="px-3 py-3 text-center">
+                    <span className={`text-sm font-bold ${getRateColor(summary.avg28dRate)}`}>
+                      {formatPercent(summary.avg28dRate)}
+                    </span>
+                  </td>
+                  {/* Positive Reply Ratio - average */}
+                  <td className="px-3 py-3 text-center">
+                    <span className={`text-sm font-bold ${getPositiveRateColor(summary.avgPositiveRate)}`}>
+                      {formatPercent(summary.avgPositiveRate)}
+                    </span>
+                  </td>
+                  {/* Suggestions - skip */}
+                  <td className="px-3 py-3"></td>
+                  {/* Warnings - skip */}
+                  <td className="px-3 py-3"></td>
+                </tr>
               )}
             </tbody>
           </table>
