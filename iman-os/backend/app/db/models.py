@@ -23,7 +23,8 @@ class Campaign(Base):
     status = Column(String(50), default="draft")
     client_id = Column(Integer, nullable=True, index=True)
     client_name = Column(String(255), nullable=True)
-    created_at = Column(DateTime, default=datetime.utcnow)
+    created_at = Column(DateTime, nullable=True)  # Actual creation date from Smartlead
+    local_created_at = Column(DateTime, default=datetime.utcnow)  # When added to our DB
     last_synced_at = Column(DateTime, nullable=True)
     is_hidden = Column(Boolean, default=False, index=True)
 

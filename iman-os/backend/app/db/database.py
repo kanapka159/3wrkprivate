@@ -79,4 +79,25 @@ async def init_db():
         await conn.execute(text("PRAGMA busy_timeout=30000"))
         await conn.run_sync(Base.metadata.create_all)
 
+        # Run migrations for new columns
+        await _run_migrations(conn)
+
     logger.info("Database tables created successfully")
+
+
+async def _run_migrations(conn):
+    """Run schema migrations for existing databases."""
+    # Check and add local_created_at column to campaigns table
+    try:
+        result = await conn.execute(text("PRAGMA table_info(campaigns)"))
+        columns = [row[1] for row in result.fetchall()]
+
+        if "local_created_at" not in columns:
+            logger.info("Adding local_created_at column to campaigns table")
+            await conn.execute(text("ALTER TABLE campaigns ADD COLUMN local_created_at DATETIME"))
+            # Copy existing created_at values to local_created_at for backwards compatibility
+            await conn.execute(text("UPDATE campaigns SET local_created_at = created_at WHERE local_created_at IS NULL"))
+            logger.info("Migration completed: added local_created_at column")
+
+    except Exception as e:
+        logger.warning(f"Migration check failed (may be expected on fresh DB): {e}")

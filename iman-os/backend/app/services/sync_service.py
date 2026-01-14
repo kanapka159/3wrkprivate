@@ -545,11 +545,46 @@ class SyncService:
         )
         campaign = result.scalar_one_or_none()
 
+        # Parse created_at from Smartlead - try multiple field names
+        created_at = None
+        for field in ["created_at", "createdAt", "created_time", "createdTime", "created", "create_date"]:
+            date_str = campaign_data.get(field)
+            if date_str:
+                try:
+                    # Handle various date formats from Smartlead
+                    if isinstance(date_str, str):
+                        # Try ISO format first
+                        if "T" in date_str:
+                            created_at = datetime.fromisoformat(date_str.replace('Z', '+00:00').replace('+00:00', ''))
+                        else:
+                            # Try common formats
+                            for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%d", "%d-%m-%Y %H:%M:%S", "%d-%m-%Y"]:
+                                try:
+                                    created_at = datetime.strptime(date_str, fmt)
+                                    break
+                                except ValueError:
+                                    continue
+                    elif isinstance(date_str, datetime):
+                        created_at = date_str
+                    if created_at:
+                        break
+                except (ValueError, TypeError) as e:
+                    logger.debug(f"Could not parse date {date_str}: {e}")
+                    continue
+
+        # Log the raw campaign data to see what fields are available
+        logger.info(f"Campaign data keys for {smartlead_id}: {list(campaign_data.keys())}")
+        if created_at:
+            logger.info(f"Parsed created_at for campaign {smartlead_id}: {created_at}")
+
         if campaign:
             campaign.name = campaign_data.get("name", campaign.name)
             campaign.status = campaign_data.get("status", campaign.status)
             campaign.client_id = campaign_data.get("client_id")
             campaign.client_name = campaign_data.get("client_name")
+            # Update created_at if we got it from Smartlead and don't have it yet
+            if created_at and not campaign.created_at:
+                campaign.created_at = created_at
         else:
             campaign = Campaign(
                 smartlead_id=smartlead_id,
@@ -557,6 +592,7 @@ class SyncService:
                 status=campaign_data.get("status", "draft"),
                 client_id=campaign_data.get("client_id"),
                 client_name=campaign_data.get("client_name"),
+                created_at=created_at,  # Store Smartlead creation date
             )
             self.db.add(campaign)
 
