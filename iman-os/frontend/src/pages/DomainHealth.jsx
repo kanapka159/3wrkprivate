@@ -50,16 +50,18 @@ function getCampaignProvider(campaign) {
   return 'OTHER';
 }
 
-// Battery-style progress indicator (iPhone style)
-function CompletionBattery({ percentage }) {
-  const value = percentage ?? 0;
-  const fillWidth = Math.max(0, Math.min(100, value)) * 0.22; // 22px max fill width
+// Battery-style progress indicator (Smartlead style)
+// Shows progress as sent/totalLeads percentage
+function CompletionBattery({ sent, totalLeads }) {
+  // Calculate progress: sent emails / total leads * 100
+  const progress = totalLeads > 0 ? Math.min(100, (sent / totalLeads) * 100) : 0;
+  const fillWidth = Math.max(0, progress) * 0.22; // 22px max fill width
 
-  // Color based on percentage: green >= 50%, yellow 20-50%, red < 20%
+  // Color based on progress: green >= 80%, orange 40-80%, blue < 40%
   const getFillColor = () => {
-    if (value >= 50) return '#22c55e'; // green
-    if (value >= 20) return '#f97316'; // orange
-    return '#ef4444'; // red
+    if (progress >= 80) return '#22c55e'; // green - almost done
+    if (progress >= 40) return '#f97316'; // orange - in progress
+    return '#3b82f6'; // blue - just started
   };
 
   return (
@@ -96,7 +98,7 @@ function CompletionBattery({ percentage }) {
           fill={getFillColor()}
         />
       </svg>
-      <span className="text-[10px] text-gray-400 mt-0.5">{Math.round(value)}%</span>
+      <span className="text-[10px] text-gray-400 mt-0.5">{Math.round(progress)}%</span>
     </div>
   );
 }
@@ -304,9 +306,18 @@ function ProviderCampaignTable({
           aVal = new Date(a.created_at || 0).getTime();
           bVal = new Date(b.created_at || 0).getTime();
           break;
-        case 'completion':
-          aVal = a.completion_percentage || 0;
-          bVal = b.completion_percentage || 0;
+        case 'leads':
+          aVal = a.total_leads || 0;
+          bVal = b.total_leads || 0;
+          break;
+        case 'progress':
+          // Progress = sent / total_leads
+          const aSent = a.stats?.sent_count || 0;
+          const bSent = b.stats?.sent_count || 0;
+          const aLeads = a.total_leads || 1;
+          const bLeads = b.total_leads || 1;
+          aVal = aSent / aLeads;
+          bVal = bSent / bLeads;
           break;
         case 'suggestion':
           aVal = a.suggestion?.suggestion || '';
@@ -436,7 +447,8 @@ function ProviderCampaignTable({
                 </th>
                 <SortableHeader label="Created" field="created" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="100px" />
                 <SortableHeader label="Status" field="status" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="100px" />
-                <SortableHeader label="Progress" field="completion" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="70px" />
+                <SortableHeader label="Leads" field="leads" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="70px" />
+                <SortableHeader label="Progress" field="progress" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="80px" />
                 <SortableHeader label="7D" subLabel="Sent" field="7d_sent" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="70px" />
                 <SortableHeader label="7D Reply" subLabel="Ratio" field="7d_rate" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="90px" />
                 <SortableHeader label="14D" subLabel="Sent" field="14d_sent" sortField={sortField} sortDirection={sortDirection} onSort={handleSort} align="center" minWidth="70px" />
@@ -450,13 +462,13 @@ function ProviderCampaignTable({
             <tbody>
               {showLoadingSpinner ? (
                 <tr>
-                  <td colSpan="13" className="px-4 py-12 text-center">
+                  <td colSpan="14" className="px-4 py-12 text-center">
                     <LoadingSpinner size="lg" />
                   </td>
                 </tr>
               ) : sortedCampaigns.length === 0 ? (
                 <tr>
-                  <td colSpan="13" className="px-4 py-12 text-center text-gray-500">
+                  <td colSpan="14" className="px-4 py-12 text-center text-gray-500">
                     {emptyMessage}
                   </td>
                 </tr>
@@ -525,9 +537,19 @@ function ProviderCampaignTable({
                         </div>
                       </td>
 
-                      {/* Progress */}
+                      {/* Leads */}
                       <td className="px-3 py-3 text-center">
-                        <CompletionBattery percentage={campaign.completion_percentage} />
+                        <span className="text-white text-sm font-medium">
+                          {formatNumber(campaign.total_leads || 0)}
+                        </span>
+                      </td>
+
+                      {/* Progress (sent/totalLeads) */}
+                      <td className="px-3 py-3 text-center">
+                        <CompletionBattery
+                          sent={stats.sent_count || 0}
+                          totalLeads={campaign.total_leads || 0}
+                        />
                       </td>
 
                       {/* 7D Sent */}
@@ -625,6 +647,7 @@ function ProviderCampaignTable({
                       </span>
                     </div>
                   </td>
+                  <td className="px-3 py-4"></td>
                   <td className="px-3 py-4"></td>
                   <td className="px-3 py-4"></td>
                   <td className="px-3 py-4"></td>
